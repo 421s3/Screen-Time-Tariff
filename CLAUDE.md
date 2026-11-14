@@ -43,6 +43,7 @@ The deck says there are more ("...and more!"). The full list is on Devpost.
 ## Repo conventions
 
 - **No AI attribution.** Don't add `Co-Authored-By: Claude`, "Generated with Claude Code", or any similar lines to commits, PRs, code comments, or docs. Commits should be authored only by the teammate making them.
-- Several people commit to `main`: run `git pull --rebase` before pushing, and don't force-push `main`.
+- **Don't push directly to `main`.** The team works off a shared working branch; commit and push there. Change `main` only through a merge or PR.
+- Several people commit to the same branch: run `git pull --rebase` before pushing, and never force-push a shared branch.
 - Never commit secrets (API keys, `.env`). Use a `.env.example` with placeholder values instead.
 - Keep the README up to date with setup/run steps so any teammate (or judge) can run the project.
