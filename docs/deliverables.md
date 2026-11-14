@@ -44,7 +44,6 @@
 5. ⭐ **Penalty feed**
    - Who paid, for which app, how many minutes, how much, and the new pool total.
    - Explorer link for each confirmed transaction.
-   - Gemini roast line when present.
 
 6. **End-of-period summary**
    - Who won the pool, how much each member paid in, and each member's final balance.
@@ -195,7 +194,7 @@
    - Generate and fund the devnet oracle keypair (in `.env` only, never committed).
 
 2. ⭐ **Collections**
-   - `users` (wallet, display name, tracker token), `groups` (on-chain address, rules, blocklist, join code), `usage_events`, `penalties` (minutes, lamports, signature, status, roast).
+   - `users` (wallet, display name, tracker token), `groups` (on-chain address, rules, blocklist, join code), `usage_events`, `penalties` (minutes, lamports, signature, status).
 
 3. ⭐ **Group and tracker APIs**
    - Create/get groups, invite codes, join.
@@ -213,10 +212,7 @@
    - Start with a swappable `slash()` that sends a plain devnet transfer, so the loop works before the program does.
    - Swap in Dev 2's Anchor `slash` once it's deployed; store signatures and status.
 
-6. **Gemini roasts**
-   - One short roast per penalty, stored with it. Fails quietly if the API is down.
-
-7. **Deployment**
+6. **Deployment**
    - Deploy to a reachable host (Vultr, AWS, Render, or Railway); ngrok from a laptop as fallback.
    - Deployment steps in the README.
 
@@ -224,7 +220,7 @@
 
 - **CP1:** API, Atlas, group endpoints, pairing, usage storage, penalties calculated (not sent yet).
 - **CP2:** Real tracker usage → tariff → real devnet transaction.
-- **CP3:** Anchor `slash` wired in, missed check-ins, roasts, `/state` complete.
+- **CP3:** Anchor `slash` wired in, missed check-ins, `/state` complete.
 - **CP4:** Deployed, end-to-end tested, demo freeze.
 
 **Completion requirement:** The tracker → backend → Solana → dashboard loop works without manually editing database records.
@@ -257,7 +253,7 @@ Times assume starting around 6 PM Saturday. Shift them if you start later, but k
 
 ## CP3 — Feature complete (~4 AM)
 
-- Anchor program in the loop, staking and withdraw, penalty feed with roasts, idle detection, retries.
+- Anchor program in the loop, staking and withdraw, penalty feed, idle detection, retries.
 - Full loop tested on two laptops.
 
 ## CP4 — Demo freeze (~8 AM)

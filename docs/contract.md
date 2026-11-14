@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.4: section 6 is the program as built in `program/`; v0.3: winner-takes-pool. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
+# Interface Contract (draft v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -201,7 +201,6 @@ type Penalty = {
   status: "pending" | "sent" | "confirmed" | "failed";
   signature: string | null;
   explorerUrl: string | null;
-  roast: string | null;                 // Gemini, optional
   createdAt: number;
 };
 ```
@@ -402,5 +401,4 @@ See each folder's `.env.example`. Never commit real values or keypair files.
 | `MONGODB_URI` | backend | shared by DM |
 | `MONGODB_DB` | backend | `screen-time-tariff` (the default) |
 | `ORACLE_KEYPAIR_PATH` | backend | `./keys/oracle.json` (gitignored) |
-| `GEMINI_API_KEY` | backend | — |
 | `ENFORCE_OFFLINE` | backend | `false` in development |
