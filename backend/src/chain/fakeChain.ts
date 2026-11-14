@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import { deriveGroupPda, deriveMemberPda, sortByPubkeyBytes, splitPool } from "./pda.js";
+import type { GroupDoc } from "../types.js";
 import type { Chain, OnchainGroup, OnchainMember } from "./types.js";
 
 const MAX_MEMBERS = 8;
@@ -31,6 +32,35 @@ export class FakeChain implements Chain {
 
   memberPda(groupPda: string, wallet: string): string {
     return deriveMemberPda(this.programId, groupPda, wallet).toBase58();
+  }
+
+  /**
+   * Rebuilds the in-memory chain from the database after a restart or redeploy, using each
+   * group's rules and the last on-chain snapshot the worker synced. Returns how many groups came back.
+   */
+  restore(docs: GroupDoc[], defaultGraceSecs: number): number {
+    let restored = 0;
+    for (const g of docs) {
+      if (!g.groupPda || !g.groupSeed) continue;
+      if (this.groupPda(g.adminWallet, g.groupSeed) !== g.groupPda) continue; // made for another program id
+      const staked = g.members.filter((m) => m.onchain);
+      this.groups.set(g.groupPda, {
+        admin: g.adminWallet,
+        oracle: this.oracle,
+        groupId: g.groupSeed,
+        allowanceMinutes: g.rules.allowanceMinutes,
+        tariffLamportsPerMin: g.rules.tariffLamportsPerMinute,
+        periodEndSec: Math.floor(g.rules.periodEnd / 1000),
+        graceSecs: g.graceSecs ?? defaultGraceSecs,
+        memberCount: staked.length,
+        totalStaked: staked.reduce((sum, m) => sum + (m.onchain?.deposited ?? 0), 0),
+        penaltyPool: g.onchain?.penaltyPool ?? 0,
+        settled: g.onchain?.settled ?? g.settlement?.status === "confirmed",
+      });
+      for (const m of staked) this.members.set(this.memberPda(g.groupPda, m.wallet), { ...m.onchain! });
+      restored++;
+    }
+    return restored;
   }
 
   // ---- instructions a user would sign (mock mode does them on the user's behalf) ----

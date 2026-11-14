@@ -411,5 +411,6 @@ See each folder's `.env.example`. Never commit real values or keypair files.
 | `MONGODB_URI` | backend | shared by DM |
 | `MONGODB_DB` | backend | `screen-time-tariff` (the default) |
 | `ORACLE_KEYPAIR_PATH` | backend | `./keys/oracle.json` (gitignored) |
+| `ORACLE_SECRET_KEY` | backend | the JSON array from `keys/oracle.json`; set on hosts instead of the file. Wins over `ORACLE_KEYPAIR_PATH` |
 | `ENFORCE_OFFLINE` | backend | `false` in development, `true` for the demo |
 | `OFFLINE_GRACE_SEC` | backend | `120` |
