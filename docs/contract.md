@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.1)
+# Interface Contract (draft v0.2: title matching is whole-word, blocklist has an optional `browsers` list)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -75,12 +75,15 @@ Public. Tells the dashboard which program and oracle to use.
 {
   "cluster": "devnet",
   "programId": "6sCrwiknWJUMwJ8By4a9m6LPdSgjxr7YYd6RMexXuF8U",
-  "oraclePubkey": "CvdZLhJ6xnD74pSL1iXhGGL32ezL8CvyBFX8THYw7CG7"
+  "oraclePubkey": "E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy"
 }
 ```
+`oraclePubkey` above is the real, funded devnet oracle. `programId` is still a placeholder until Dev 2 deploys.
 
 ### `POST /groups` (dashboard, `X-Wallet` = creator)
 Called **after** the creator's `create_group` transaction confirms.
+
+**Until the program is deployed, `groupPda`, `groupSeed`, and `createSignature` are optional**, so groups can be created for testing without a transaction. They come back as `null` in `/groups/join` and `/state`. `blocklist` is also optional; the backend uses the default list from section 5. Blocklist entries may be `{ match, label }` objects or plain strings (label = match).
 ```json
 // request
 {
@@ -128,8 +131,8 @@ type GroupState = {
     groupId: string;
     name: string;
     joinCode: string;
-    groupPda: string;
-    programId: string;
+    groupPda: string | null;            // null until the program is deployed
+    programId: string | null;           // null until the program is deployed
     status: "upcoming" | "active" | "ended";
     periodStart: number;
     periodEnd: number;
@@ -253,12 +256,14 @@ Stored per group, sent to the tracker by `/tracker/config`.
     { "match": "Reddit",    "label": "Reddit" },
     { "match": "Instagram", "label": "Instagram" },
     { "match": "Twitch",    "label": "Twitch" }
-  ]
+  ],
+  "browsers": ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "opera_gx.exe", "vivaldi.exe", "arc.exe"]
 }
 ```
-Matching rules:
+Matching rules (these follow the tracker's implementation in `tracker/blocklist.py`):
 - `processes`: case-insensitive **exact** match on the foreground process's file name. `matchType: "process"`.
-- `titles`: case-insensitive **substring** match on the foreground window title, **only when the process is a browser** (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`). `matchType: "title"`.
+- `titles`: case-insensitive **whole-word** match on the foreground window title (so "Reddit" doesn't match "Redditch", but "YouTube" matches "YouTube Music"), **only when the process is in `browsers`**. `matchType: "title"`.
+- `browsers`: optional. If it's missing, the tracker uses the 8 defaults shown above.
 - Process matches win over title matches. First match in list order wins.
 - `label` is what gets reported as `app` and shown on the dashboard.
 - Idle (no keyboard/mouse input for `idleThresholdSec`) is not counted. TBD at CP0: whether a blocked app playing video in front counts while idle (suggestion: yes for `title` matches, so watching YouTube hands-off still counts).
@@ -268,6 +273,8 @@ Matching rules:
 ## 6. Solana program (Dev 2) — placeholders until Dev 2 confirms
 
 Program name: `screen_time_tariff`. Program ID: **TBD after first deploy** (put it here and in every `.env.example`).
+
+Oracle (pass as `oracle` to `create_group`): `E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy` (devnet, funded, held by the backend).
 
 ### PDAs (seeds)
 | Account | Seeds |
@@ -331,6 +338,7 @@ See each folder's `.env.example`. Never commit real values or keypair files.
 | `PROGRAM_ID` / `VITE_PROGRAM_ID` | backend, web | from section 6 |
 | `SOLANA_RPC_URL` / `VITE_SOLANA_RPC_URL` | backend, web | `https://api.devnet.solana.com` |
 | `MONGODB_URI` | backend | shared by DM |
+| `MONGODB_DB` | backend | `screen-time-tariff` (the default) |
 | `ORACLE_KEYPAIR_PATH` | backend | `./keys/oracle.json` (gitignored) |
 | `GEMINI_API_KEY` | backend | — |
 | `ENFORCE_OFFLINE` | backend | `false` in development |
