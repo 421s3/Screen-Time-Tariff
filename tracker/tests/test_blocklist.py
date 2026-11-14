@@ -2,26 +2,27 @@ import json
 
 import pytest
 
-from blocklist import Blocklist
+from blocklist import Blocklist, Match
 from foreground import Sample
 from tracker import DEFAULT_BLOCKLIST
 
 BL = Blocklist.load(DEFAULT_BLOCKLIST)
+P, T = "process", "title"
 
 
 @pytest.mark.parametrize("process,title,expected", [
-    # Games/apps: exact process name, any case, any title
-    ("VALORANT-Win64-Shipping.exe", "VALORANT  ", "VALORANT-Win64-Shipping.exe"),
-    ("league of legends.exe", "League of Legends (TM) Client", "League of Legends.exe"),
-    ("Discord.exe", "#general | Friends - Discord", "Discord.exe"),
+    # Games/apps: exact process name, any case, any title; reported by label
+    ("VALORANT-Win64-Shipping.exe", "VALORANT  ", Match("Valorant", P)),
+    ("league of legends.exe", "League of Legends (TM) Client", Match("League of Legends", P)),
+    ("Discord.exe", "#general | Friends - Discord", Match("Discord", P)),
     # Browser tabs: title keyword, across browsers and incognito/profile suffixes
-    ("chrome.exe", "TikTok - Make Your Day - Google Chrome", "TikTok"),
-    ("chrome.exe", "funny cat | TikTok - Google Chrome", "TikTok"),
-    ("msedge.exe", "lofi beats - YouTube and 3 more pages - Personal - Microsoft Edge", "YouTube"),
-    ("firefox.exe", "(12) YouTube — Mozilla Firefox Private Browsing", "YouTube"),
-    ("brave.exe", "r/funny on Reddit - Brave", "Reddit"),
-    ("chrome.exe", "Instagram - Google Chrome (Incognito)", "Instagram"),
-    ("opera.exe", "xQc - Twitch - Opera", "Twitch"),
+    ("chrome.exe", "TikTok - Make Your Day - Google Chrome", Match("TikTok", T)),
+    ("chrome.exe", "funny cat | TikTok - Google Chrome", Match("TikTok", T)),
+    ("msedge.exe", "lofi beats - YouTube and 3 more pages - Personal - Microsoft Edge", Match("YouTube", T)),
+    ("firefox.exe", "(12) YouTube — Mozilla Firefox Private Browsing", Match("YouTube", T)),
+    ("brave.exe", "r/funny on Reddit - Brave", Match("Reddit", T)),
+    ("chrome.exe", "Instagram - Google Chrome (Incognito)", Match("Instagram", T)),
+    ("opera.exe", "xQc - Twitch - Opera", Match("Twitch", T)),
     # Not blocked
     ("chrome.exe", "Gmail - Google Chrome", None),
     ("chrome.exe", "Redditch weather - Google Chrome", None),  # whole words only
@@ -39,24 +40,43 @@ def test_no_window_is_not_blocked():
 
 def test_title_search_false_positive_is_known():
     # Documented limitation: a search for "tiktok" looks like TikTok (fixed by the stretch Chrome extension)
-    assert BL.match(Sample("chrome.exe", "tiktok - Google Search - Google Chrome")) == "TikTok"
+    assert BL.match(Sample("chrome.exe", "tiktok - Google Search - Google Chrome")) == Match("TikTok", T)
+
+
+def test_plain_string_entries_still_work():
+    bl = Blocklist.from_dict({"processes": ["steam.exe"], "titles": ["YouTube"]})
+    assert bl.match(Sample("Steam.exe", "Steam")) == Match("steam.exe", P)
+    assert bl.match(Sample("msedge.exe", "YouTube - Microsoft Edge")) == Match("YouTube", T)
+
+
+def test_process_beats_title_and_first_entry_wins():
+    bl = Blocklist.from_dict({
+        "processes": [{"match": "chrome.exe", "label": "Chrome"}, {"match": "CHROME.EXE", "label": "Dup"}],
+        "titles": [{"match": "YouTube", "label": "YouTube"}],
+    })
+    assert bl.match(Sample("chrome.exe", "YouTube")) == Match("Chrome", P)
+    bl = Blocklist.from_dict({"titles": [{"match": "Shorts", "label": "A"}, {"match": "YouTube", "label": "B"}]})
+    assert bl.match(Sample("chrome.exe", "Shorts - YouTube")) == Match("A", T)
 
 
 def test_custom_browsers_and_defaults():
-    bl = Blocklist.from_dict({"titles": ["YouTube"]})
+    bl = Blocklist.from_dict({"titles": [{"match": "YouTube", "label": "YouTube"}]})
     assert bl.processes == []
-    assert bl.match(Sample("msedge.exe", "YouTube - Microsoft Edge")) == "YouTube"
+    assert bl.match(Sample("msedge.exe", "YouTube - Microsoft Edge")) == Match("YouTube", T)
     bl = Blocklist.from_dict({"titles": ["YouTube"], "browsers": ["chrome.exe"]})
     assert bl.match(Sample("msedge.exe", "YouTube - Microsoft Edge")) is None
 
 
 def test_regex_characters_in_keywords_are_literal():
     bl = Blocklist.from_dict({"titles": ["C++ (live)"]})
-    assert bl.match(Sample("chrome.exe", "C++ (live) - Google Chrome")) == "C++ (live)"
+    assert bl.match(Sample("chrome.exe", "C++ (live) - Google Chrome")) == Match("C++ (live)", T)
     assert bl.match(Sample("chrome.exe", "C (live) - Google Chrome")) is None
 
 
-@pytest.mark.parametrize("bad", [[], {"titles": "TikTok"}, {"processes": [1]}, {"titles": [""]}])
+@pytest.mark.parametrize("bad", [
+    [], {"titles": "TikTok"}, {"processes": [1]}, {"titles": [""]},
+    {"titles": [{"label": "x"}]}, {"titles": [{"match": "x", "label": ""}]}, {"browsers": "chrome.exe"},
+])
 def test_invalid_config_rejected(bad):
     with pytest.raises(ValueError):
         Blocklist.from_dict(bad)
@@ -64,5 +84,24 @@ def test_invalid_config_rejected(bad):
 
 def test_load_from_file(tmp_path):
     path = tmp_path / "bl.json"
-    path.write_text(json.dumps({"processes": ["steam.exe"], "titles": []}), encoding="utf-8")
-    assert Blocklist.load(path).match(Sample("Steam.exe", "Steam")) == "steam.exe"
+    path.write_text(json.dumps({"processes": [{"match": "steam.exe", "label": "Steam"}]}), encoding="utf-8")
+    assert Blocklist.load(path).match(Sample("Steam.exe", "Steam")) == Match("Steam", P)
+
+
+# Titles captured from real Chrome/Edge windows on 2026-11-14 (tracker --scan). Edge puts a
+# zero-width space in "Microsoft\u200b Edge" and adds the profile name.
+@pytest.mark.parametrize("process,title,expected", [
+    ("chrome.exe", "Log in | TikTok - Google Chrome", Match("TikTok", T)),
+    ("chrome.exe", "Reddit - Prove your humanity - Google Chrome", Match("Reddit", T)),
+    ("chrome.exe", "Twitch - Google Chrome", Match("Twitch", T)),
+    ("msedge.exe", "TikTok - Make Your Day - Personal - Microsoft\u200b Edge", Match("TikTok", T)),
+    ("msedge.exe", "YouTube - Personal - Microsoft\u200b Edge", Match("YouTube", T)),
+    ("msedge.exe", "Instagram - Personal - Microsoft\u200b Edge", Match("Instagram", T)),
+    ("Discord.exe", "#big-announcements | sunhacks - Discord", Match("Discord", P)),
+    # Known limits, documented in README: a subreddit page titled only by its name...
+    ("msedge.exe", "funny - Personal - Microsoft\u200b Edge", None),
+    # ...and a Google search for a blocked site's name
+    ("msedge.exe", "tiktok - Google Search - Personal - Microsoft\u200b Edge", Match("TikTok", T)),
+])
+def test_real_browser_titles(process, title, expected):
+    assert BL.match(Sample(process, title)) == expected

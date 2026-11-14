@@ -7,7 +7,9 @@ import { config } from "../config.js";
 import { groups, penalties } from "../db.js";
 import type { GroupDoc, Settlement } from "../types.js";
 import { saveOnchain } from "./chainSync.js";
-import { usageByWalletApp } from "./usage.js";
+import { blockedUsage } from "./usage.js";
+
+export const WINDOW_CLOSED = "Settle window closed (period end + grace passed); members can use emergency_refund";
 
 /** Pure winner rule: lowest seconds wins; ties all win. Returned sorted by pubkey bytes. */
 export function pickWinners(secondsByWallet: Map<string, number>): string[] {
@@ -32,6 +34,23 @@ export async function settleGroup(chain: Chain, group: WithId<GroupDoc>, now: nu
   if (!onchainGroup) return null;
   if (now < onchainGroup.periodEndSec * 1000 + config.settleDelayMs) return null;
 
+  // The program only accepts settle before period_end + grace_secs; after that, refunds are open
+  const deadline = (onchainGroup.periodEndSec + onchainGroup.graceSecs) * 1000;
+  if (!onchainGroup.settled && now >= deadline) {
+    const closed: Settlement = {
+      status: "failed",
+      poolLamports: onchainGroup.penaltyPool,
+      winners: previous?.winners ?? [],
+      signature: null,
+      attempts: config.maxSendAttempts, // final: don't retry
+      lastError: WINDOW_CLOSED,
+      settledAt: null,
+    };
+    await setSettlement(group, closed);
+    console.error(`[chain] ${WINDOW_CLOSED} (group ${group.name})`);
+    return closed;
+  }
+
   const staked = group.members.filter((m) => members.get(m.wallet));
   const stakedWallets = staked.map((m) => m.wallet);
 
@@ -51,7 +70,7 @@ export async function settleGroup(chain: Chain, group: WithId<GroupDoc>, now: nu
     return skipped;
   }
 
-  const usage = await usageByWalletApp(group);
+  const usage = await blockedUsage(group, now); // includes "Tracker offline" time when enforced
   const seconds = new Map(stakedWallets.map((w) => [w, 0]));
   for (const u of usage) if (seconds.has(u.wallet)) seconds.set(u.wallet, (seconds.get(u.wallet) ?? 0) + u.seconds);
   const winners = pickWinners(seconds);
@@ -113,6 +132,9 @@ export async function runSettlement(chain: Chain, now = Date.now()): Promise<Set
       groupPda: { $ne: null },
       "rules.periodEnd": { $lte: now - config.settleDelayMs },
       "settlement.status": { $nin: ["confirmed", "skipped"] },
+      autoSettle: { $ne: false }, // refund-demo groups are never settled
+      // Given up for good (retries used up, or the settle window closed)
+      $nor: [{ "settlement.status": "failed", "settlement.attempts": { $gte: config.maxSendAttempts } }],
     })
     .toArray();
   const results: Settlement[] = [];

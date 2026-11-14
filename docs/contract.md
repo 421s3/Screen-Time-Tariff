@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
+# Interface Contract (draft v0.7: `tracker.idle` in /state, `blocklist.steamGames` documented. v0.6: missed check-ins and the settle window. v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -94,6 +94,8 @@ Called **after** the creator's `create_group` transaction confirms.
 
 - **`devnet` mode:** `groupPda` and `groupSeed` are **required**. The backend checks that `groupPda` is the PDA for (your wallet, `groupSeed`), that the account exists, and that its oracle is the backend's. `allowanceMinutes`, `tariffLamportsPerMinute`, and `periodEnd` are then **taken from the chain** (body values are ignored); `periodStart` only exists off-chain. Errors: `ONCHAIN_GROUP_REQUIRED`, `GROUP_PDA_MISMATCH`, `GROUP_NOT_ON_CHAIN`, `WRONG_ORACLE`.
 - **`mock` / `off` mode:** `groupPda`, `groupSeed`, and `createSignature` are optional (in `mock` the backend creates the group on the fake chain).
+- `autoSettle` (optional, default `true`): `false` means the backend **never settles** this group, so after `periodEnd + grace_secs` members use `emergency_refund`. For the refund demo only.
+- `graceSecs` (optional, **`mock` mode only**; default 600): the settle window. In `devnet` it's read from the chain. Use **600**: the backend settles about 30 s after `periodEnd`, and a window shorter than ~90 s logs a warning.
 - `blocklist` is optional; the backend uses the default list from section 5. Blocklist entries may be `{ match, label }` objects or plain strings (label = match).
 ```json
 // request
@@ -152,6 +154,7 @@ type GroupState = {
     rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
     blocklist: Blocklist;               // section 5
     settlement: Settlement | null;      // null until the period ends and the backend settles
+    settleDeadline: number | null;      // ms = periodEnd + grace_secs. Settle must land before this; after it, refunds open
   };
   members: Member[];
   // Staked members first, then lowest blocked time. `leading` = would win if the period ended now
@@ -184,11 +187,12 @@ type Member = {
     blockedMinutes: number;             // floor(blockedSeconds / 60)
     minutesOver: number;                // max(0, blockedMinutes - allowanceMinutes)
     minutesCharged: number;             // charged on-chain so far
-    offlineMinutes: number;             // missed check-ins counted against them
+    offlineMinutes: number;             // missed check-ins; already included in blockedSeconds and byApp ("Tracker offline")
     byApp: { app: string; seconds: number }[];  // sorted desc
   };
   current: { app: string; matchType: "process" | "title"; since: number } | null; // null = not on a blocked app
-  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null };
+  // idle: the tracker's last batch said no keyboard/mouse input for idleThresholdSec. Only true while online.
+  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null; idle: boolean };
 };
 
 type Penalty = {
@@ -261,11 +265,16 @@ Tracker re-fetches this every few minutes (or on each report response, stretch).
 - Each penalty is sent as `slash(totalMinutesOver)` (cumulative, so resends are harmless). The SOL moves from the member's stake into the group's pool inside the vault; nobody's wallet changes yet.
 - Members who haven't staked on-chain can't be charged (nothing to take) and can't win.
 - **Winner:** at least 30 s after `periodEnd`, the member(s) **with the lowest `blockedSeconds` among staked members** win the whole pool. Exact ties split it equally; the leftover lamport goes to the lowest public key (same as the program). The backend then calls `settle`.
+- **Settle window:** the program only accepts `settle` while `periodEnd <= now < settleDeadline`. If the backend can't settle in time (or `autoSettle` is `false`), `settlement.status` becomes `failed` and members get their original deposits back with `emergency_refund` after `settleDeadline`.
 - After settlement every member calls `withdraw` from the dashboard to get `remainingLamports` back.
 - `/state` money fields are synced from the chain by the worker every `WORKER_INTERVAL_SEC` (use 5 for the demo).
 
 ### Missed check-ins (backend rule)
-During an active period, if a tracker's last `/usage` is older than `OFFLINE_GRACE_SEC` (TBD, e.g. 120), the gap counts as blocked time with app `"Tracker offline"`. Controlled by env `ENFORCE_OFFLINE=true|false` (off in development).
+Controlled by `ENFORCE_OFFLINE=true|false` (off in development, **on for the demo**) and `OFFLINE_GRACE_SEC` (default 120).
+- Every accepted `/usage` call is a check-in at its `sentAt` (heartbeats included). Batches resent after an outage keep their original `sentAt`, so they fill the gap they cover.
+- For each **staked** member, every silence longer than the grace counts as blocked time, but only the part **beyond** the grace: a 5-minute silence with a 2-minute grace = 3 offline minutes. That includes the gap from `periodStart` to the first check-in, so **pair the tracker before the period starts**.
+- Offline time is reported as app `"Tracker offline"` in `byApp`, is included in `blockedSeconds`, can cause penalties (blamed on `"Tracker offline"`), and counts toward the winner rule. `offlineMinutes` shows it separately.
+- Unstaked members never get offline time.
 
 ---
 
@@ -277,9 +286,9 @@ Stored per group, sent to the tracker by `/tracker/config`.
   "processes": [
     { "match": "VALORANT-Win64-Shipping.exe", "label": "Valorant" },
     { "match": "League of Legends.exe",       "label": "League of Legends" },
-    { "match": "steam.exe",                   "label": "Steam" },
     { "match": "Discord.exe",                 "label": "Discord" }
   ],
+  "steamGames": true,
   "titles": [
     { "match": "TikTok",    "label": "TikTok" },
     { "match": "YouTube",   "label": "YouTube" },
@@ -294,6 +303,7 @@ Matching rules (these follow the tracker's implementation in `tracker/blocklist.
 - `processes`: case-insensitive **exact** match on the foreground process's file name. `matchType: "process"`.
 - `titles`: case-insensitive **whole-word** match on the foreground window title (so "Reddit" doesn't match "Redditch", but "YouTube" matches "YouTube Music"), **only when the process is in `browsers`**. `matchType: "title"`.
 - `browsers`: optional. If it's missing, the tracker uses the 8 defaults shown above.
+- `steamGames`: optional boolean. `true` = any game launched from a Steam library (an exe under `steamapps\common\<Game>\`) counts, reported with the game's folder name as `app` (e.g. `"Team Fortress 2"`). The Steam client itself (`steam.exe`) only counts if it's listed in `processes`. Missing = off in the tracker; the backend's default blocklist sets it to `true`. Must be `true`/`false` (400 `VALIDATION_ERROR` otherwise).
 - Process matches win over title matches. First match in list order wins.
 - `label` is what gets reported as `app` and shown on the dashboard.
 - Idle (no keyboard/mouse input for `idleThresholdSec`) is not counted. TBD at CP0: whether a blocked app playing video in front counts while idle (suggestion: yes for `title` matches, so watching YouTube hands-off still counts).
@@ -401,4 +411,5 @@ See each folder's `.env.example`. Never commit real values or keypair files.
 | `MONGODB_URI` | backend | shared by DM |
 | `MONGODB_DB` | backend | `screen-time-tariff` (the default) |
 | `ORACLE_KEYPAIR_PATH` | backend | `./keys/oracle.json` (gitignored) |
-| `ENFORCE_OFFLINE` | backend | `false` in development |
+| `ENFORCE_OFFLINE` | backend | `false` in development, `true` for the demo |
+| `OFFLINE_GRACE_SEC` | backend | `120` |

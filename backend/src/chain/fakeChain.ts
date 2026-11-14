@@ -40,7 +40,8 @@ export class FakeChain implements Chain {
     groupId: string,
     rules: { allowanceMinutes: number; tariffLamportsPerMin: number; periodEndSec: number; graceSecs: number },
   ): string {
-    if (rules.tariffLamportsPerMin <= 0 || rules.graceSecs < 0 || rules.periodEndSec <= this.nowSec()) {
+    // grace_secs > 0: it's the settle window, so 0 would make settlement impossible
+    if (rules.tariffLamportsPerMin <= 0 || rules.graceSecs <= 0 || rules.periodEndSec <= this.nowSec()) {
       throw new FakeChainError("InvalidRules");
     }
     const pda = this.groupPda(admin, groupId);
@@ -114,6 +115,7 @@ export class FakeChain implements Chain {
     const g = this.mustGroup(groupPda);
     if (g.settled) throw new FakeChainError("AlreadySettled");
     if (this.nowSec() < g.periodEndSec) throw new FakeChainError("PeriodNotOver");
+    if (this.nowSec() >= g.periodEndSec + g.graceSecs) throw new FakeChainError("GraceOver");
     const winners = sortByPubkeyBytes(winnerWallets);
     if (winners.length === 0 || winners.length > g.memberCount || new Set(winners).size !== winners.length) {
       throw new FakeChainError("BadWinners");

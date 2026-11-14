@@ -33,7 +33,7 @@ npm run dev               # http://localhost:4000/health → {"ok":true}
 | `mock` (default in `.env.example`) | Building and demoing **before the program is deployed** | An in-memory copy of the program's rules (`src/chain/fakeChain.ts`). `POST /groups` and `/stakes` create the group and stake on the user's behalf; slashes and settlement get `mock_…` signatures. Resets when the server restarts |
 | `devnet` | The real thing | Xayden's program via Anchor. Needs `PROGRAM_ID`, the funded oracle key, and the dashboard creating groups and staking on-chain |
 
-## Status (Checkpoint 2: winner-takes-pool)
+## Status (Checkpoint 3)
 
 | Piece | Status |
 |---|---|
@@ -41,8 +41,9 @@ npm run dev               # http://localhost:4000/health → {"ok":true}
 | `slash` sent for each new penalty | ✅ Tested on the mock chain; the real Anchor path builds correct transactions against devnet but **can't be sent until the program is deployed** |
 | On-chain balances synced into `/state` | ✅ every worker tick |
 | Settlement after the period ends | ✅ lowest blocked time among staked members wins; ties split |
+| Settle window | ✅ settles before `periodEnd + grace_secs`; after that it's marked `failed` and members use `emergency_refund`. `autoSettle: false` groups (refund demo) are never settled |
 | Stakes verified on-chain | ✅ in `mock` and `devnet` |
-| Missed check-ins | CP3 |
+| Missed check-ins | ✅ with `ENFORCE_OFFLINE=true`: silence beyond `OFFLINE_GRACE_SEC` (120 s) counts as "Tracker offline" blocked time for staked members |
 
 Notes for teammates:
 - **Dashboard auth** is the `X-Wallet: <address>` header, not verified yet.
@@ -52,6 +53,7 @@ Notes for teammates:
 - **Winner-takes-pool:** a penalty moves SOL from the member's stake into the group's pool; nobody's wallet changes until `settle` and `withdraw`. Members who never staked can't be charged or win.
 - **Dashboard in `devnet` mode:** create the group on-chain first (oracle `E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy`), then `POST /groups` with `groupPda` + `groupSeed`. Members `join_and_stake` on-chain, then `POST /groups/:id/stakes`. After settlement, members sign `withdraw` themselves.
 - `/state` money is as fresh as the worker. Set `WORKER_INTERVAL_SEC=5` for the demo.
+- **For the demo:** `ENFORCE_OFFLINE=true`, and **pair every tracker before the period starts** (the gap from `periodStart` to the first check-in counts). Create groups with `grace_secs = 600`.
 
 ## Layout
 
@@ -66,7 +68,7 @@ src/
   routes/         meta, groups, pairing, tracker
   chain/          Chain interface, anchorChain.ts (real), fakeChain.ts (mock), pda.ts, idl/ (copied from program/)
   services/       state.ts (/state), penalties.ts (penalty math), chainSync.ts (sync + slash),
-                  settlement.ts (winner + settle), usage.ts
+                  settlement.ts (winner + settle), offline.ts (missed check-ins), usage.ts
   worker.ts       each tick: penalties → sync + slash → settle
 scripts/          smoke.ts, check-db.ts, make-oracle.ts
 ```

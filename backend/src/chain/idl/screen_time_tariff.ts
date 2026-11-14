@@ -285,9 +285,14 @@ export type ScreenTimeTariff = {
     {
       "name": "settle",
       "docs": [
-        "Oracle-only, after `period_end`, once. Remaining accounts are the winning",
-        "members' `Member` PDAs (writable), sorted by strictly ascending pubkey.",
-        "The pool is split equally; the remainder goes to the first (lowest) key."
+        "Oracle-only, once, in the window [period_end, period_end + grace_secs).",
+        "Remaining accounts are the winning members' `Member` PDAs (writable),",
+        "sorted by strictly ascending pubkey. The pool is split equally; the",
+        "remainder goes to the first (lowest) key.",
+        "",
+        "The window closes when `emergency_refund` opens. Refunds return the full",
+        "deposit (including slashed lamports already counted in the pool), so",
+        "settling after any refund would pay the same lamports twice."
       ],
       "discriminator": [
         175,
@@ -607,6 +612,11 @@ export type ScreenTimeTariff = {
       "code": 6011,
       "name": "math",
       "msg": "Math overflow"
+    },
+    {
+      "code": 6012,
+      "name": "graceOver",
+      "msg": "Settle window closed: period_end + grace_secs has passed (refunds are open)"
     }
   ],
   "types": [
