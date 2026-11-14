@@ -10,6 +10,7 @@ import '@solana/wallet-adapter-react-ui/styles.css'
 import './index.css'
 import App from './App'
 import { RPC_URL } from './config'
+import { ChainSignerBridge } from './chain/signer'
 
 const queryClient = new QueryClient()
 
@@ -19,7 +20,10 @@ function SolanaProviders({ children }: { children: ReactNode }) {
   return (
     <ConnectionProvider endpoint={RPC_URL}>
       <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>{children}</WalletModalProvider>
+        <WalletModalProvider>
+          <ChainSignerBridge />
+          {children}
+        </WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   )

@@ -155,3 +155,29 @@ export function UsageBar({
     </div>
   )
 }
+
+/** "Live · updated 2s ago" pill; turns amber when polls are failing. */
+export function LiveStatus({
+  updatedAt,
+  failing,
+  now,
+}: {
+  updatedAt: number
+  failing: boolean
+  now: number
+}) {
+  const ago = updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) : null
+  const stale = failing || (ago !== null && ago > 10)
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
+        stale ? 'bg-amber-500/15 text-amber-200' : 'bg-emerald-500/15 text-emerald-200'
+      }`}
+      role="status"
+    >
+      <span className={`h-2 w-2 rounded-full ${stale ? 'bg-amber-400' : 'animate-pulse bg-emerald-400'}`} />
+      {stale ? 'Reconnecting to backend…' : 'Live'}
+      {ago !== null && <span className="text-white/40">· updated {ago}s ago</span>}
+    </span>
+  )
+}

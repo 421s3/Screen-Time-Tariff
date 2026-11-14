@@ -48,7 +48,7 @@ function StakeInner({ groupId }: { groupId: string }) {
   })
 
   if (state.isLoading) return <Loading label="Loading group…" />
-  if (state.isError)
+  if (state.isError && !state.data)
     return <ErrorBox message={(state.error as Error).message} onRetry={() => state.refetch()} />
 
   const { group, members, totals } = state.data!

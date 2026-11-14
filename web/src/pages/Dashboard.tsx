@@ -13,6 +13,7 @@ import {
   Card,
   EmptyState,
   ErrorBox,
+  LiveStatus,
   Loading,
   UsageBar,
   btnGhost,
@@ -54,7 +55,7 @@ export function Dashboard() {
   }, [newestId])
 
   if (state.isLoading) return <Loading label="Loading group dashboard…" />
-  if (state.isError)
+  if (state.isError && !state.data)
     return <ErrorBox message={(state.error as Error).message} onRetry={() => state.refetch()} />
 
   const data = state.data!
@@ -83,6 +84,9 @@ export function Dashboard() {
             goes into the pool
             {group.blocklist.steamGames && ' · Steam games count'}
           </p>
+          <div className="mt-2">
+            <LiveStatus updatedAt={state.dataUpdatedAt} failing={state.isError} now={now} />
+          </div>
         </div>
         <StatusClock data={data} now={now} />
       </div>

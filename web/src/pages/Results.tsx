@@ -30,7 +30,7 @@ export function Results() {
   })
 
   if (state.isLoading) return <Loading label="Loading results…" />
-  if (state.isError)
+  if (state.isError && !state.data)
     return <ErrorBox message={(state.error as Error).message} onRetry={() => state.refetch()} />
 
   const { group, members, leaderboard, totals } = state.data!

@@ -20,10 +20,10 @@ This file is for work inside `web/`. The project overview, game rules, architect
 ## Stack
 
 - Vite + React + TypeScript + Tailwind CSS
-- React Router (pages), TanStack Query (fetching + polling every 3 s)
+- React Router (pages), TanStack Query (fetching + polling every 2 s)
 - Framer Motion (mascot popups, winner celebration), Sonner (toasts)
 - Solana: `@solana/web3.js` v1 (not `@solana/kit`), `@solana/wallet-adapter-react`, `-react-ui`, `-wallets`; Phantom on devnet only
-- `@coral-xyz/anchor` for `create_group` / `join_and_stake` / `withdraw` with Phantom at CP3 (not installed yet). The IDL is in `program/idl/` (program ID reserved, not deployed to devnet yet).
+- `@coral-xyz/anchor` for `create_group` / `join_and_stake` / `withdraw` with Phantom at CP3. The IDL is copied from `program/idl/` into `src/chain/idl/` (program ID reserved, not deployed to devnet yet).
 - `vite-plugin-node-polyfills` (needed for `Buffer`)
 - Explorer links: `https://explorer.solana.com/tx/<signature>?cluster=devnet` (no link for `mock_...` signatures)
 - Amounts are stored in lamports (1 SOL = 1_000_000_000); convert only for display.
@@ -70,9 +70,9 @@ Landing / Connect Wallet → Create Group → Join Group → Stake → Pair Trac
 
 ## Status (update as you go)
 
-- [ ] CP1: built and verified on mock data for the **winner-takes-pool** model (all pages and states, DEMO MODE badge, 90 s period with pool penalties, Steam game / idle / offline activity states, settlement + withdraw, Restart demo). Remaining: confirm Phantom connect + devnet balance in a browser with Phantom, then tick.
-- [ ] CP2: `realApi` endpoints written to the contract but not yet run against the backend.
-- [ ] CP3
+- [x] CP1: built and verified on mock data for the **winner-takes-pool** model (all pages and states, DEMO MODE badge, 90 s period with pool penalties, Steam game / idle / offline activity states, settlement + withdraw, Restart demo). Phantom connect + devnet balance confirmed.
+- [x] CP2: `realApi` verified against the real backend (Atlas, `CHAIN_MODE=mock`): create, join, stake, pair, `/usage` → penalty → pool, all live on the dashboard. Polls every 2 s (also in background tabs), keeps last data on a failed poll, and shows a Live / Reconnecting pill.
+- [ ] CP3: code ready, untested. `src/chain/program.ts` (Anchor + Phantom: `create_group`, `join_and_stake`, `withdraw`), wired into `realApi` when the backend's `/config` says `chainMode: devnet`. Note: the program's `join_and_stake` uses `init`, so a wallet can stake only once per group on devnet (UI shows ALREADY_STAKED). Blocked on the devnet deploy.
 - [ ] CP4
 
 ## Known gotchas

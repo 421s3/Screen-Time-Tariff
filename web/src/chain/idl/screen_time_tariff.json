@@ -1,0 +1,830 @@
+{
+  "address": "GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi",
+  "metadata": {
+    "name": "screen_time_tariff",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Screen Time Tariff - group staking vault with oracle-only slashing"
+  },
+  "instructions": [
+    {
+      "name": "create_group",
+      "discriminator": [
+        79,
+        60,
+        158,
+        134,
+        61,
+        199,
+        56,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  114,
+                  111,
+                  117,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "admin"
+              },
+              {
+                "kind": "arg",
+                "path": "group_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "group_id",
+          "type": "u64"
+        },
+        {
+          "name": "oracle",
+          "type": "pubkey"
+        },
+        {
+          "name": "allowance_minutes",
+          "type": "u32"
+        },
+        {
+          "name": "tariff_lamports_per_min",
+          "type": "u64"
+        },
+        {
+          "name": "period_end",
+          "type": "i64"
+        },
+        {
+          "name": "grace_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "emergency_refund",
+      "docs": [
+        "Liveness escape hatch: if the oracle never settles within",
+        "`period_end + grace_secs`, every member can take back their ORIGINAL deposit."
+      ],
+      "discriminator": [
+        188,
+        73,
+        52,
+        195,
+        137,
+        70,
+        180,
+        147
+      ],
+      "accounts": [
+        {
+          "name": "wallet",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "member"
+          ]
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "relations": [
+            "member"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              }
+            ]
+          }
+        },
+        {
+          "name": "member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "join_and_stake",
+      "discriminator": [
+        144,
+        143,
+        186,
+        255,
+        137,
+        200,
+        75,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "wallet",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              }
+            ]
+          }
+        },
+        {
+          "name": "member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "Oracle-only, once, in the window [period_end, period_end + grace_secs).",
+        "Remaining accounts are the winning members' `Member` PDAs (writable),",
+        "sorted by strictly ascending pubkey. The pool is split equally; the",
+        "remainder goes to the first (lowest) key.",
+        "",
+        "The window closes when `emergency_refund` opens. Refunds return the full",
+        "deposit (including slashed lamports already counted in the pool), so",
+        "settling after any refund would pay the same lamports twice."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "slash",
+      "docs": [
+        "Oracle-only. `total_minutes_over` is CUMULATIVE for the period; only the",
+        "difference from `minutes_charged` is charged, so retries are harmless.",
+        "The penalty moves from the member's balance into the group's penalty",
+        "pool (lamports never leave the vault), capped at the remaining balance."
+      ],
+      "discriminator": [
+        204,
+        141,
+        18,
+        161,
+        8,
+        177,
+        92,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "signer": true
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "relations": [
+            "member"
+          ]
+        },
+        {
+          "name": "member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "member.wallet",
+                "account": "Member"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "total_minutes_over",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "withdraw",
+      "docs": [
+        "After settlement, a member pulls their balance (unspent stake + any prize)."
+      ],
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "wallet",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "member"
+          ]
+        },
+        {
+          "name": "group",
+          "writable": true,
+          "relations": [
+            "member"
+          ]
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              }
+            ]
+          }
+        },
+        {
+          "name": "member",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  109,
+                  98,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "group"
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Group",
+      "discriminator": [
+        209,
+        249,
+        208,
+        63,
+        182,
+        89,
+        186,
+        254
+      ]
+    },
+    {
+      "name": "Member",
+      "discriminator": [
+        54,
+        19,
+        162,
+        21,
+        29,
+        166,
+        17,
+        198
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "Joined",
+      "discriminator": [
+        16,
+        20,
+        44,
+        48,
+        132,
+        189,
+        68,
+        98
+      ]
+    },
+    {
+      "name": "Settled",
+      "discriminator": [
+        232,
+        210,
+        40,
+        17,
+        142,
+        124,
+        145,
+        238
+      ]
+    },
+    {
+      "name": "Slashed",
+      "discriminator": [
+        98,
+        59,
+        249,
+        154,
+        233,
+        53,
+        98,
+        194
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "Only the group's oracle can do this"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidRules",
+      "msg": "Invalid group rules"
+    },
+    {
+      "code": 6002,
+      "name": "ZeroAmount",
+      "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6003,
+      "name": "PeriodOver",
+      "msg": "The staking period has ended"
+    },
+    {
+      "code": 6004,
+      "name": "PeriodNotOver",
+      "msg": "The period has not ended yet"
+    },
+    {
+      "code": 6005,
+      "name": "GroupFull",
+      "msg": "Group is full"
+    },
+    {
+      "code": 6006,
+      "name": "BadWinners",
+      "msg": "Winners must be distinct members of this group, sorted by ascending pubkey"
+    },
+    {
+      "code": 6007,
+      "name": "AlreadySettled",
+      "msg": "Group already settled"
+    },
+    {
+      "code": 6008,
+      "name": "NotSettled",
+      "msg": "Group not settled yet"
+    },
+    {
+      "code": 6009,
+      "name": "GraceNotOver",
+      "msg": "Grace period after period end has not elapsed"
+    },
+    {
+      "code": 6010,
+      "name": "AlreadyWithdrawn",
+      "msg": "Already withdrawn"
+    },
+    {
+      "code": 6011,
+      "name": "Math",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6012,
+      "name": "GraceOver",
+      "msg": "Settle window closed: period_end + grace_secs has passed (refunds are open)"
+    }
+  ],
+  "types": [
+    {
+      "name": "Group",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "oracle",
+            "type": "pubkey"
+          },
+          {
+            "name": "group_id",
+            "type": "u64"
+          },
+          {
+            "name": "allowance_minutes",
+            "type": "u32"
+          },
+          {
+            "name": "tariff_lamports_per_min",
+            "type": "u64"
+          },
+          {
+            "name": "period_end",
+            "type": "i64"
+          },
+          {
+            "name": "grace_secs",
+            "type": "i64"
+          },
+          {
+            "name": "member_count",
+            "type": "u32"
+          },
+          {
+            "name": "total_staked",
+            "docs": [
+              "Sum of all deposits (never decreases; informational)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "penalty_pool",
+            "docs": [
+              "Forfeited penalties held in the vault until settlement."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "settled",
+            "type": "bool"
+          },
+          {
+            "name": "winner_count",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Joined",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Member",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposited",
+            "type": "u64"
+          },
+          {
+            "name": "balance",
+            "docs": [
+              "Unspent stake (deposit − slashed); after settle also includes any prize."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_slashed",
+            "type": "u64"
+          },
+          {
+            "name": "total_received",
+            "type": "u64"
+          },
+          {
+            "name": "minutes_charged",
+            "docs": [
+              "Cumulative minutes over the allowance already charged (idempotency)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "withdrawn",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Settled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner_count",
+            "type": "u32"
+          },
+          {
+            "name": "pool",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Slashed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "minutes_charged",
+            "type": "u32"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          },
+          {
+            "name": "total_minutes_over",
+            "type": "u32"
+          },
+          {
+            "name": "penalty_pool",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Withdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "group",
+            "type": "pubkey"
+          },
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}
