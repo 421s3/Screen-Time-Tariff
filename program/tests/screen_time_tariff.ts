@@ -13,7 +13,8 @@ describe("screen_time_tariff (winner-takes-pool)", () => {
 
   const STAKE = 0.1 * LAMPORTS_PER_SOL;
   const TARIFF = 0.01 * LAMPORTS_PER_SOL;
-  const PERIOD = 30; // seconds
+  // Seconds until period_end. Override for fast local runs: PERIOD_SECS=8 anchor test ...
+  const PERIOD = Number(process.env.PERIOD_SECS ?? 30);
 
   const oracle = Keypair.generate();
   const alice = Keypair.generate();
@@ -54,12 +55,12 @@ describe("screen_time_tariff (winner-takes-pool)", () => {
   };
   const bal = async (m: PublicKey) => (await program.account.member.fetch(m)).balance.toNumber();
 
-  async function setup(id: BN, wallets: Keypair[]) {
+  async function setup(id: BN, wallets: Keypair[], graceSecs = PERIOD * 4) {
     const group = pdaGroup(id);
     const vault = pdaVault(group);
     const periodEnd = new BN(Math.floor(Date.now() / 1000) + PERIOD);
     await program.methods
-      .createGroup(id, oracle.publicKey, 1, new BN(TARIFF), periodEnd, new BN(PERIOD * 4))
+      .createGroup(id, oracle.publicKey, 1, new BN(TARIFF), periodEnd, new BN(graceSecs))
       .accountsPartial({ admin: admin.publicKey, group, vault })
       .rpc();
     for (const w of wallets) {
@@ -91,9 +92,17 @@ describe("screen_time_tariff (winner-takes-pool)", () => {
       .signers([w])
       .rpc();
 
+  const refund = (group: PublicKey, vault: PublicKey, w: Keypair) =>
+    program.methods
+      .emergencyRefund()
+      .accountsPartial({ wallet: w.publicKey, group, vault, member: pdaMember(group, w.publicKey) })
+      .signers([w])
+      .rpc();
+  const sleep = (secs: number) => new Promise((r) => setTimeout(r, secs * 1000));
+
   before(async () => {
     await fund(oracle, 0.05);
-    for (const k of [alice, bob, carol]) await fund(k, 0.3);
+    for (const k of [alice, bob, carol]) await fund(k, 0.5); // 3 groups x 0.1 stake + rent
   });
 
   describe("group A: single winner", () => {
@@ -106,6 +115,10 @@ describe("screen_time_tariff (winner-takes-pool)", () => {
       assert.equal(g.memberCount, 3);
       const rentMin = await conn.getMinimumBalanceForRentExemption(0);
       assert.equal(await conn.getBalance(vault), 3 * STAKE + rentMin);
+    });
+
+    it("rejects create_group with grace_secs = 0 (no settle window)", async () => {
+      await fails(setup(gid.add(new BN(9)), [], 0), "InvalidRules");
     });
 
     it("rejects slash by a non-oracle", async () => {
@@ -158,9 +171,11 @@ describe("screen_time_tariff (winner-takes-pool)", () => {
   });
 
   describe("group B: tie splits deterministically", () => {
+    let group: PublicKey, vault: PublicKey;
+
     it("3-way tie on a pool that doesn't divide evenly: remainder to the lowest pubkey", async () => {
       const id = gid.add(new BN(1));
-      const { group, vault } = await setup(id, [alice, bob, carol]);
+      ({ group, vault } = await setup(id, [alice, bob, carol]));
       await slash(group, carol, 1); // pool = TARIFF = 10,000,000 -> 3,333,333 each + 1 remainder
       await new Promise((r) => setTimeout(r, (PERIOD + 3) * 1000));
       const all = sortKeys([alice, bob, carol].map((k) => pdaMember(group, k.publicKey)));
@@ -181,6 +196,49 @@ describe("screen_time_tariff (winner-takes-pool)", () => {
       for (const m of all) total += await bal(m);
       const rentMin = await conn.getMinimumBalanceForRentExemption(0);
       assert.equal(total + rentMin, await conn.getBalance(vault));
+    });
+
+    it("emergency_refund after settle fails", async () => {
+      await fails(refund(group, vault, alice), "AlreadySettled");
+    });
+  });
+
+  describe("group C: emergency_refund when the oracle never settles", () => {
+    const GRACE = PERIOD * 2;
+    let group: PublicKey, vault: PublicKey;
+
+    it("refund fails before period_end and before period_end + grace", async () => {
+      ({ group, vault } = await setup(gid.add(new BN(2)), [alice, bob, carol], GRACE));
+      await slash(group, alice, 3); // alice's balance drops; her deposit does not
+      await fails(refund(group, vault, alice), "GraceNotOver");
+      await sleep(PERIOD + 3); // period over, grace still running
+      await fails(refund(group, vault, alice), "GraceNotOver");
+    });
+
+    it("after the grace period, unsettled: refunds the ORIGINAL deposit; no double refund", async () => {
+      await sleep(GRACE);
+      const mA = pdaMember(group, alice.publicKey);
+      const deposited = (await program.account.member.fetch(mA)).deposited.toNumber();
+      assert.equal(deposited, STAKE);
+      const before = await conn.getBalance(alice.publicKey);
+      await refund(group, vault, alice); // fee is paid by the provider wallet
+      assert.equal((await conn.getBalance(alice.publicKey)) - before, deposited);
+      const m = await program.account.member.fetch(mA);
+      assert.isTrue(m.withdrawn);
+      assert.equal(m.balance.toNumber(), 0);
+      await fails(refund(group, vault, alice), "AlreadyWithdrawn");
+      await fails(withdraw(group, vault, bob), "NotSettled");
+    });
+
+    it("oracle cannot settle once refunds are open (would double-pay slashed lamports)", async () => {
+      const winners = sortKeys([bob, carol].map((k) => pdaMember(group, k.publicKey)));
+      await fails(settle(group, winners), "GraceOver");
+    });
+
+    it("everyone else refunds; vault ends at its rent minimum", async () => {
+      for (const w of [bob, carol]) await refund(group, vault, w);
+      const rentMin = await conn.getMinimumBalanceForRentExemption(0);
+      assert.equal(await conn.getBalance(vault), rentMin);
     });
   });
 });
