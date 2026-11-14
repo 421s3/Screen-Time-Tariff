@@ -1,8 +1,6 @@
 import { ObjectId, type WithId } from "mongodb";
-import { config } from "../config.js";
 import { groups, penalties } from "../db.js";
 import type { GroupDoc, PenaltyDoc, PenaltyStatus } from "../types.js";
-import { splitLamports } from "../util.js";
 import { usageByWalletApp } from "./usage.js";
 
 /** Statuses that count as already charged (or about to be), so the worker doesn't charge them again. */
@@ -17,7 +15,7 @@ export interface PenaltyInput {
   stakedLamports: number;
 }
 
-/** Pure penalty math. Returns null when nothing new is owed. */
+/** Pure penalty math. Returns null when nothing new is owed (or there's no stake left to take). */
 export function computePenalty(i: PenaltyInput): { minutes: number; lamports: number } | null {
   const blockedMinutes = Math.floor(i.blockedSeconds / 60);
   const minutesOver = Math.max(0, blockedMinutes - i.allowanceMinutes);
@@ -30,8 +28,6 @@ export function computePenalty(i: PenaltyInput): { minutes: number; lamports: nu
 }
 
 async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<PenaltyDoc[]> {
-  if (group.members.length < 2) return []; // nobody to pay
-
   const [usage, reserved] = await Promise.all([
     usageByWalletApp(group),
     penalties()
@@ -46,19 +42,20 @@ async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<
   for (const member of group.members) {
     const mine = usage.filter((u) => u.wallet === member.wallet);
     const r = reserved.find((x) => x._id === member.wallet);
+    const reservedMinutes = r?.minutes ?? 0;
     const owed = computePenalty({
       blockedSeconds: mine.reduce((sum, u) => sum + u.seconds, 0),
       allowanceMinutes: group.rules.allowanceMinutes,
       tariffLamportsPerMinute: group.rules.tariffLamportsPerMinute,
-      reservedMinutes: r?.minutes ?? 0,
+      reservedMinutes,
       reservedLamports: r?.lamports ?? 0,
-      stakedLamports: member.stakedLamports,
+      // Members who haven't staked have nothing to take, so no penalty is created for them
+      stakedLamports: member.onchain?.deposited ?? member.stakedLamports,
     });
     if (!owed) continue;
 
     // Blame the app they were on most recently
     const app = [...mine].sort((a, b) => b.lastAt - a.lastAt)[0]?.app ?? "Unknown";
-    const others = group.members.filter((m) => m.wallet !== member.wallet);
     const penalty: PenaltyDoc = {
       _id: new ObjectId(),
       groupId: group._id,
@@ -67,9 +64,11 @@ async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<
       app,
       minutes: owed.minutes,
       lamports: owed.lamports,
-      recipients: splitLamports(owed.lamports, others),
+      totalMinutesOver: reservedMinutes + owed.minutes,
       status: "pending",
       signature: null,
+      attempts: 0,
+      lastError: null,
       roast: null,
       createdAt: now,
       updatedAt: now,
@@ -80,15 +79,13 @@ async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<
   return created;
 }
 
-/**
- * One worker pass: creates `pending` penalties for any newly owed minutes.
- * CP1 stops here. CP2 adds a sender that moves pending → sent → confirmed.
- */
+/** Creates `pending` penalties for newly owed minutes. Sending them is chainSync.ts's job. */
 export async function runPenaltyTick(now = Date.now()): Promise<PenaltyDoc[]> {
   const active = await groups()
     .find({
       "rules.periodStart": { $lte: now },
-      "rules.periodEnd": { $gte: now - config.slashGraceMs },
+      "rules.periodEnd": { $gte: now - 24 * 60 * 60_000 },
+      "settlement.status": { $nin: ["confirmed", "skipped"] },
     })
     .toArray();
 

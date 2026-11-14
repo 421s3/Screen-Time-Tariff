@@ -5,7 +5,7 @@ import { requireTracker, trackerOf } from "../auth.js";
 import { config } from "../config.js";
 import { groups, isDuplicateKeyError, trackers, usageBatches, usageEvents } from "../db.js";
 import { ApiError } from "../errors.js";
-import { capEvents } from "../services/usage.js";
+import { capEvents, usageBudget } from "../services/usage.js";
 import type { CurrentApp, UsageEventDoc } from "../types.js";
 
 const matchType = z.enum(["process", "title"]);
@@ -64,13 +64,13 @@ trackerRouter.post("/usage", requireTracker, async (req, res) => {
 
   let events = body.events;
   if (config.usageRateCap) {
-    const elapsedSec = tracker.lastBatchAt ? (now - tracker.lastBatchAt) / 1000 : config.reportIntervalSec;
-    const result = capEvents(events, elapsedSec + config.usageCapSlackSec);
+    const result = capEvents(events, usageBudget(tracker, now, config.usageCapSlackSec));
     if (result.capped) {
       console.warn(`[usage] capped batch ${body.batchId} from ${tracker.wallet}: more seconds than time elapsed`);
     }
     events = result.events;
   }
+  const acceptedSeconds = events.reduce((sum, e) => sum + e.seconds, 0);
 
   const docs: UsageEventDoc[] = events
     .filter((e) => e.seconds > 0)
@@ -97,7 +97,7 @@ trackerRouter.post("/usage", requireTracker, async (req, res) => {
     : null;
   await trackers().updateOne(
     { _id: tracker._id },
-    { $set: { lastSeenAt: now, lastBatchAt: now, idle: body.idle, current } },
+    { $set: { lastSeenAt: now, lastBatchAt: now, idle: body.idle, current }, $inc: { reportedSeconds: acceptedSeconds } },
   );
 
   res.json({ accepted: true, duplicate: false });

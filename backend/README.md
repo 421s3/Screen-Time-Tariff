@@ -18,30 +18,40 @@ npm run dev               # http://localhost:4000/health → {"ok":true}
 | Script | Does |
 |---|---|
 | `npm run dev` | Starts the API and penalty worker; restarts on save |
-| `npm run smoke` | End-to-end test of every endpoint and the worker, on a throwaway database (`screen-time-tariff-smoke`) that it drops afterwards |
+| `npm run smoke` | End-to-end test of every endpoint, the worker, slashing, and settlement (on the in-memory chain), using a throwaway database it drops afterwards |
+| `npm run devnet-e2e` | **After the program is deployed:** the full money loop on real devnet (create group, stake, slash, settle, withdraw). Costs the oracle ~0.12 devnet SOL |
+| `npm run sync-idl` | Copies the program's IDL from `../program/idl/` into `src/chain/idl/` after the program changes |
 | `npm run check-db` | Tests the Atlas connection in `.env` |
 | `npm run typecheck` | TypeScript check |
 | `npm run make-oracle` | Creates `keys/oracle.json` (refuses to overwrite) |
 
-## Status (Checkpoint 1)
+## Chain modes (`CHAIN_MODE` in `.env`)
 
-| Endpoint | Status |
+| Mode | Use it for | What happens |
+|---|---|---|
+| `off` | Nothing on-chain | Penalties are calculated and stay `pending`; stakes are self-reported |
+| `mock` (default in `.env.example`) | Building and demoing **before the program is deployed** | An in-memory copy of the program's rules (`src/chain/fakeChain.ts`). `POST /groups` and `/stakes` create the group and stake on the user's behalf; slashes and settlement get `mock_…` signatures. Resets when the server restarts |
+| `devnet` | The real thing | Xayden's program via Anchor. Needs `PROGRAM_ID`, the funded oracle key, and the dashboard creating groups and staking on-chain |
+
+## Status (Checkpoint 2: winner-takes-pool)
+
+| Piece | Status |
 |---|---|
-| `GET /health`, `GET /config` | ✅ |
-| `POST /groups`, `POST /groups/join`, `POST /groups/:groupId/stakes` | ✅ `groupPda` optional until the program is deployed |
-| `GET /groups/:groupId/state` | ✅ Public (no wallet header), poll every 2–3 s |
-| `POST /pair/start`, `POST /pair/complete` | ✅ |
-| `GET /tracker/config`, `POST /usage` | ✅ |
-| Penalty worker | ✅ Creates `pending` penalties. **Not sent on-chain yet** (CP2) |
+| All CP1 endpoints | ✅ |
+| `slash` sent for each new penalty | ✅ Tested on the mock chain; the real Anchor path builds correct transactions against devnet but **can't be sent until the program is deployed** |
+| On-chain balances synced into `/state` | ✅ every worker tick |
+| Settlement after the period ends | ✅ lowest blocked time among staked members wins; ties split |
+| Stakes verified on-chain | ✅ in `mock` and `devnet` |
 | Missed check-ins, Gemini roasts | CP3 |
 
 Notes for teammates:
 - **Dashboard auth** is the `X-Wallet: <address>` header, not verified yet.
 - **Tracker auth** is `Authorization: Bearer <trackerToken>` from `/pair/complete`.
-- **`/usage` caps seconds** at the real time since that tracker's previous batch (+5 s), so a batch can't claim more time than passed. The first batch may report up to 35 s.
+- **`/usage` budget:** a tracker can never report more seconds in total than have passed since it was paired (+30 s). Batches saved during an outage and resent back-to-back are fine.
 - Usage counts toward a period by when the **server receives it**, so laptop clock differences don't matter.
-- Penalties only count as charged (`minutesCharged`, `slashedLamports`, `receivedLamports`) once `confirmed`. In CP1 they stay `pending`.
-- A member alone in a group is never charged, since there's nobody to pay.
+- **Winner-takes-pool:** a penalty moves SOL from the member's stake into the group's pool; nobody's wallet changes until `settle` and `withdraw`. Members who never staked can't be charged or win.
+- **Dashboard in `devnet` mode:** create the group on-chain first (oracle `E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy`), then `POST /groups` with `groupPda` + `groupSeed`. Members `join_and_stake` on-chain, then `POST /groups/:id/stakes`. After settlement, members sign `withdraw` themselves.
+- `/state` money is as fresh as the worker. Set `WORKER_INTERVAL_SEC=5` for the demo.
 
 ## Layout
 
@@ -54,8 +64,10 @@ src/
   types.ts        database document types
   auth.ts         X-Wallet and tracker token middleware
   routes/         meta, groups, pairing, tracker
-  services/       state.ts (/state), penalties.ts (penalty math), usage.ts
-  worker.ts       runs the penalty engine every WORKER_INTERVAL_SEC
+  chain/          Chain interface, anchorChain.ts (real), fakeChain.ts (mock), pda.ts, idl/ (copied from program/)
+  services/       state.ts (/state), penalties.ts (penalty math), chainSync.ts (sync + slash),
+                  settlement.ts (winner + settle), usage.ts
+  worker.ts       each tick: penalties → sync + slash → settle
 scripts/          smoke.ts, check-db.ts, make-oracle.ts
 ```
 

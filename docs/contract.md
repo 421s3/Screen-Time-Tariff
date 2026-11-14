@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.2: title matching is whole-word, blocklist has an optional `browsers` list)
+# Interface Contract (draft v0.3: winner-takes-pool. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -74,16 +74,24 @@ Public. Tells the dashboard which program and oracle to use.
 ```json
 {
   "cluster": "devnet",
-  "programId": "6sCrwiknWJUMwJ8By4a9m6LPdSgjxr7YYd6RMexXuF8U",
+  "chainMode": "devnet",
+  "programId": "GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi",
   "oraclePubkey": "E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy"
 }
 ```
-`oraclePubkey` above is the real, funded devnet oracle. `programId` is still a placeholder until Dev 2 deploys.
+`oraclePubkey` above is the real, funded devnet oracle. `programId` is `null` until `PROGRAM_ID` is set in the backend's `.env`.
+
+`chainMode` is the backend's `CHAIN_MODE`:
+- `off`: penalties are calculated and stay `pending`; stakes are self-reported. No chain at all.
+- `mock`: an in-memory copy of the program runs inside the backend. `POST /groups` and `/stakes` do `create_group` / `join_and_stake` on the user's behalf, and penalties and settlement get `mock_...` signatures (no Explorer links). For building the dashboard before the program is deployed.
+- `devnet`: the real program. The rules below apply.
 
 ### `POST /groups` (dashboard, `X-Wallet` = creator)
 Called **after** the creator's `create_group` transaction confirms.
 
-**Until the program is deployed, `groupPda`, `groupSeed`, and `createSignature` are optional**, so groups can be created for testing without a transaction. They come back as `null` in `/groups/join` and `/state`. `blocklist` is also optional; the backend uses the default list from section 5. Blocklist entries may be `{ match, label }` objects or plain strings (label = match).
+- **`devnet` mode:** `groupPda` and `groupSeed` are **required**. The backend checks that `groupPda` is the PDA for (your wallet, `groupSeed`), that the account exists, and that its oracle is the backend's. `allowanceMinutes`, `tariffLamportsPerMinute`, and `periodEnd` are then **taken from the chain** (body values are ignored); `periodStart` only exists off-chain. Errors: `ONCHAIN_GROUP_REQUIRED`, `GROUP_PDA_MISMATCH`, `GROUP_NOT_ON_CHAIN`, `WRONG_ORACLE`.
+- **`mock` / `off` mode:** `groupPda`, `groupSeed`, and `createSignature` are optional (in `mock` the backend creates the group on the fake chain).
+- `blocklist` is optional; the backend uses the default list from section 5. Blocklist entries may be `{ match, label }` objects or plain strings (label = match).
 ```json
 // request
 {
@@ -120,7 +128,7 @@ Called after `join_and_stake` confirms.
 ```json
 { "lamports": 500000000, "signature": "<tx signature>" }
 ```
-→ `200 { "ok": true }`. Stretch: backend reads the Member PDA to verify instead of trusting the body.
+→ `200 { "ok": true }`. In `devnet` and `mock` mode the backend reads the member's on-chain account and records its `deposited` amount; the body's `lamports` is ignored (409 `STAKE_NOT_FOUND` if there's no on-chain stake). Only `off` mode trusts the body.
 
 ### `GET /groups/:groupId/state` (dashboard, polled every 2–3 s)
 Everything the dashboard shows. Full example: [`mock-state.json`](mock-state.json).
@@ -131,34 +139,48 @@ type GroupState = {
     groupId: string;
     name: string;
     joinCode: string;
-    groupPda: string | null;            // null until the program is deployed
-    programId: string | null;           // null until the program is deployed
+    groupPda: string | null;            // null only in chainMode "off"
+    programId: string | null;           // null until PROGRAM_ID is set
+    chainMode: "off" | "mock" | "devnet";
     status: "upcoming" | "active" | "ended";
     periodStart: number;
     periodEnd: number;
     demoMode: boolean;
     rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
     blocklist: Blocklist;               // section 5
+    settlement: Settlement | null;      // null until the period ends and the backend settles
   };
   members: Member[];
-  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number }[]; // lowest first
+  // Staked members first, then lowest blocked time. `leading` = would win if the period ended now
+  // (after settlement: the actual winners). Unstaked members never lead.
+  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number; leading: boolean }[];
   penalties: Penalty[];                 // newest first, max 50
-  totals: { stakedLamports: number; paidOutLamports: number };
+  totals: { stakedLamports: number; penaltyPoolLamports: number }; // pool charged so far (after settle: the pool that was paid out)
+};
+
+type Settlement = {
+  status: "pending" | "sent" | "confirmed" | "failed" | "skipped"; // skipped = nobody staked
+  poolLamports: number;
+  winners: { wallet: string; displayName: string; prizeLamports: number }[];
+  signature: string | null;
+  explorerUrl: string | null;           // devnet only
+  settledAt: number | null;
 };
 
 type Member = {
   wallet: string;
   displayName: string;
-  stakedLamports: number;               // total deposited
-  slashedLamports: number;              // total paid out as penalties
-  receivedLamports: number;             // total received from others' penalties (lands in their wallet)
-  remainingLamports: number;            // stakedLamports - slashedLamports (withdrawable after period end)
+  staked: boolean;                      // has an on-chain Member account (can be charged and can win)
+  stakedLamports: number;               // on-chain deposit
+  slashedLamports: number;              // moved into the pool
+  receivedLamports: number;             // prize won at settlement (0 before)
+  remainingLamports: number;            // withdrawable: staked - slashed + received
   withdrawn: boolean;
   usage: {
     blockedSeconds: number;             // this period, blocked apps only
     blockedMinutes: number;             // floor(blockedSeconds / 60)
     minutesOver: number;                // max(0, blockedMinutes - allowanceMinutes)
-    minutesCharged: number;             // confirmed on-chain so far
+    minutesCharged: number;             // charged on-chain so far
     offlineMinutes: number;             // missed check-ins counted against them
     byApp: { app: string; seconds: number }[];  // sorted desc
   };
@@ -168,12 +190,11 @@ type Member = {
 
 type Penalty = {
   penaltyId: string;
-  wallet: string;                       // who paid
+  wallet: string;                       // who was charged (the SOL goes into the group's pool)
   displayName: string;
   app: string;                          // what they were on; "Tracker offline" for missed check-ins
   minutes: number;
-  lamports: number;
-  recipients: { wallet: string; displayName: string; lamports: number }[];
+  lamports: number;                     // estimate while pending; the amount actually charged once confirmed
   status: "pending" | "sent" | "confirmed" | "failed";
   signature: string | null;
   explorerUrl: string | null;
@@ -233,6 +254,13 @@ Tracker re-fetches this every few minutes (or on each report response, stretch).
 - Backend ignores a `batchId` it has already stored (`duplicate: true`).
 - Backend caps total `seconds` in a batch at the real time since that tracker's previous batch (+ a few seconds of slack).
 - Usage outside `periodStart`–`periodEnd` is stored but not charged.
+
+### Winner-takes-pool (backend rules)
+- Each penalty is sent as `slash(totalMinutesOver)` (cumulative, so resends are harmless). The SOL moves from the member's stake into the group's pool inside the vault; nobody's wallet changes yet.
+- Members who haven't staked on-chain can't be charged (nothing to take) and can't win.
+- **Winner:** at least 30 s after `periodEnd`, the member(s) **with the lowest `blockedSeconds` among staked members** win the whole pool. Exact ties split it equally; the leftover lamport goes to the lowest public key (same as the program). The backend then calls `settle`.
+- After settlement every member calls `withdraw` from the dashboard to get `remainingLamports` back.
+- `/state` money fields are synced from the chain by the worker every `WORKER_INTERVAL_SEC` (use 5 for the demo).
 
 ### Missed check-ins (backend rule)
 During an active period, if a tracker's last `/usage` is older than `OFFLINE_GRACE_SEC` (TBD, e.g. 120), the gap counts as blocked time with app `"Tracker offline"`. Controlled by env `ENFORCE_OFFLINE=true|false` (off in development).

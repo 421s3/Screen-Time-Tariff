@@ -32,6 +32,19 @@ export async function usageByWalletApp(group: WithId<GroupDoc>): Promise<WalletA
 }
 
 /**
+ * Seconds a tracker may still report: time since it was paired, plus slack, minus what it
+ * already reported. Batches saved during an outage and resent back-to-back still fit, but a
+ * tracker can never claim more blocked time than has actually passed.
+ */
+export function usageBudget(
+  tracker: { createdAt: number; reportedSeconds?: number },
+  now: number,
+  slackSec: number,
+): number {
+  return Math.max(0, (now - tracker.createdAt) / 1000 + slackSec - (tracker.reportedSeconds ?? 0));
+}
+
+/**
  * Scales a batch down so its total seconds don't exceed what could really have elapsed.
  * Stops a buggy or tampered tracker from reporting 10 hours in 30 seconds.
  */

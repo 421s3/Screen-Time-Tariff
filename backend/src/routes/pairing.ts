@@ -76,6 +76,7 @@ pairingRouter.post("/pair/complete", async (req, res) => {
     lastBatchAt: null,
     current: null,
     idle: false,
+    reportedSeconds: 0,
   };
   await trackers().insertOne(tracker);
 

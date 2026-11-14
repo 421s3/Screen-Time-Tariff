@@ -1,8 +1,13 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { PublicKey } from "@solana/web3.js";
 import { ObjectId } from "mongodb";
+import { config } from "./config.js";
 import { ApiError } from "./errors.js";
-import type { Recipient } from "./types.js";
+
+/** Explorer link for a real devnet transaction; null for mock signatures. */
+export function explorerUrlFor(signature: string | null): string | null {
+  return signature && config.chainMode === "devnet" ? explorerTxUrl(signature) : null;
+}
 
 export function isPubkey(value: string): boolean {
   try {
@@ -48,22 +53,4 @@ export function parseGroupId(value: unknown): ObjectId {
     throw new ApiError(404, "GROUP_NOT_FOUND", "No group with that id");
   }
   return new ObjectId(value);
-}
-
-/**
- * Splits lamports evenly across recipients; any remainder goes to the first one.
- * Same rule as the program's `slash`, so off-chain records match on-chain transfers.
- */
-export function splitLamports(
-  total: number,
-  recipients: { wallet: string; displayName: string }[],
-): Recipient[] {
-  if (recipients.length === 0) return [];
-  const share = Math.floor(total / recipients.length);
-  const remainder = total - share * recipients.length;
-  return recipients.map((r, i) => ({
-    wallet: r.wallet,
-    displayName: r.displayName,
-    lamports: share + (i === 0 ? remainder : 0),
-  }));
 }

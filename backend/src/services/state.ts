@@ -1,20 +1,24 @@
 // Builds GET /groups/:groupId/state. The shape must match docs/contract.md section 4
 // and docs/mock-state.json, because the dashboard is built against them.
+// Winner-takes-pool: penalties go into the group's pool; the lowest-screen-time staked
+// member(s) win it at settlement.
 import type { ObjectId } from "mongodb";
+import type { ChainMode } from "../chain/index.js";
 import { config } from "../config.js";
 import { groups, penalties, trackers } from "../db.js";
 import { ApiError } from "../errors.js";
-import type { Blocklist, MatchType, PenaltyStatus, Recipient } from "../types.js";
-import { explorerTxUrl } from "../util.js";
+import type { Blocklist, MatchType, PenaltyStatus, SettlementStatus } from "../types.js";
+import { explorerUrlFor } from "../util.js";
 import { usageByWalletApp } from "./usage.js";
 
 export interface MemberState {
   wallet: string;
   displayName: string;
+  staked: boolean; // has a Member account on-chain (always true in CHAIN_MODE=off once stakedLamports > 0)
   stakedLamports: number;
-  slashedLamports: number;
-  receivedLamports: number;
-  remainingLamports: number;
+  slashedLamports: number; // moved into the pool
+  receivedLamports: number; // prize won at settlement
+  remainingLamports: number; // withdrawable balance
   withdrawn: boolean;
   usage: {
     blockedSeconds: number;
@@ -35,12 +39,20 @@ export interface PenaltyState {
   app: string;
   minutes: number;
   lamports: number;
-  recipients: Recipient[];
   status: PenaltyStatus;
   signature: string | null;
   explorerUrl: string | null;
   roast: string | null;
   createdAt: number;
+}
+
+export interface SettlementState {
+  status: SettlementStatus;
+  poolLamports: number;
+  winners: { wallet: string; displayName: string; prizeLamports: number }[];
+  signature: string | null;
+  explorerUrl: string | null;
+  settledAt: number | null;
 }
 
 export interface GroupState {
@@ -51,17 +63,19 @@ export interface GroupState {
     joinCode: string;
     groupPda: string | null;
     programId: string | null;
+    chainMode: ChainMode;
     status: "upcoming" | "active" | "ended";
     periodStart: number;
     periodEnd: number;
     demoMode: boolean;
     rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
     blocklist: Blocklist;
+    settlement: SettlementState | null;
   };
   members: MemberState[];
-  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number }[];
+  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number; leading: boolean }[];
   penalties: PenaltyState[];
-  totals: { stakedLamports: number; paidOutLamports: number };
+  totals: { stakedLamports: number; penaltyPoolLamports: number };
 }
 
 export async function buildGroupState(groupId: ObjectId, now = Date.now()): Promise<GroupState> {
@@ -75,6 +89,7 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
   ]);
   const confirmed = allPenalties.filter((p) => p.status === "confirmed");
   const { allowanceMinutes, tariffLamportsPerMinute, periodStart, periodEnd, demoMode } = group.rules;
+  const onChainKnown = config.chainMode !== "off";
 
   const members: MemberState[] = group.members.map((m) => {
     const byApp = usage
@@ -83,16 +98,14 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       .sort((a, b) => b.seconds - a.seconds);
     const blockedSeconds = byApp.reduce((sum, u) => sum + u.seconds, 0);
     const blockedMinutes = Math.floor(blockedSeconds / 60);
-
     const paid = confirmed.filter((p) => p.wallet === m.wallet);
-    const slashedLamports = paid.reduce((sum, p) => sum + p.lamports, 0);
-    const minutesCharged = paid.reduce((sum, p) => sum + p.minutes, 0);
-    const receivedLamports = confirmed
-      .flatMap((p) => p.recipients)
-      .filter((r) => r.wallet === m.wallet)
-      .reduce((sum, r) => sum + r.lamports, 0);
 
-    // A member may have paired more than one tracker; use the most recently seen
+    // On-chain numbers win when we have them; otherwise fall back to the database
+    const chain = m.onchain ?? null;
+    const stakedLamports = chain?.deposited ?? m.stakedLamports;
+    const slashedLamports = chain?.totalSlashed ?? paid.reduce((sum, p) => sum + p.lamports, 0);
+    const receivedLamports = chain?.totalReceived ?? 0;
+
     const tracker = groupTrackers
       .filter((t) => t.wallet === m.wallet)
       .sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
@@ -101,16 +114,17 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
     return {
       wallet: m.wallet,
       displayName: m.displayName,
-      stakedLamports: m.stakedLamports,
+      staked: onChainKnown ? chain !== null : m.stakedLamports > 0,
+      stakedLamports,
       slashedLamports,
       receivedLamports,
-      remainingLamports: m.stakedLamports - slashedLamports,
-      withdrawn: false, // set from the chain once withdraw exists
+      remainingLamports: chain?.balance ?? stakedLamports - slashedLamports,
+      withdrawn: chain?.withdrawn ?? false,
       usage: {
         blockedSeconds,
         blockedMinutes,
         minutesOver: Math.max(0, blockedMinutes - allowanceMinutes),
-        minutesCharged,
+        minutesCharged: chain?.minutesCharged ?? paid.reduce((sum, p) => sum + p.minutes, 0),
         offlineMinutes: 0, // missed check-ins are CP3
         byApp,
       },
@@ -119,9 +133,32 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
     };
   });
 
+  // Winner rule (docs/contract.md section 4): lowest blocked time among staked members; ties all lead.
+  // After settlement the recorded winners are authoritative.
+  const settlement = group.settlement ?? null;
+  const eligible = members.filter((m) => m.staked);
+  const best = eligible.length ? Math.min(...eligible.map((m) => m.usage.blockedSeconds)) : null;
+  const isLeading = (m: MemberState) =>
+    settlement?.status === "confirmed"
+      ? settlement.winners.some((w) => w.wallet === m.wallet)
+      : m.staked && best !== null && m.usage.blockedSeconds === best;
+
   const leaderboard = [...members]
-    .sort((a, b) => a.usage.blockedSeconds - b.usage.blockedSeconds || a.displayName.localeCompare(b.displayName))
-    .map((m, i) => ({ wallet: m.wallet, displayName: m.displayName, blockedMinutes: m.usage.blockedMinutes, rank: i + 1 }));
+    .sort(
+      (a, b) =>
+        Number(b.staked) - Number(a.staked) ||
+        a.usage.blockedSeconds - b.usage.blockedSeconds ||
+        a.displayName.localeCompare(b.displayName),
+    )
+    .map((m, i) => ({
+      wallet: m.wallet,
+      displayName: m.displayName,
+      blockedMinutes: m.usage.blockedMinutes,
+      rank: i + 1,
+      leading: isLeading(m),
+    }));
+
+  const poolBeforeSettle = group.onchain?.penaltyPool ?? confirmed.reduce((sum, p) => sum + p.lamports, 0);
 
   return {
     serverTime: now,
@@ -131,12 +168,23 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       joinCode: group.joinCode,
       groupPda: group.groupPda,
       programId: config.programId,
+      chainMode: config.chainMode,
       status: now < periodStart ? "upcoming" : now > periodEnd ? "ended" : "active",
       periodStart,
       periodEnd,
       demoMode,
       rules: { allowanceMinutes, tariffLamportsPerMinute },
       blocklist: group.blocklist,
+      settlement: settlement
+        ? {
+            status: settlement.status,
+            poolLamports: settlement.poolLamports,
+            winners: settlement.winners,
+            signature: settlement.signature,
+            explorerUrl: explorerUrlFor(settlement.signature),
+            settledAt: settlement.settledAt,
+          }
+        : null,
     },
     members,
     leaderboard,
@@ -147,16 +195,15 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       app: p.app,
       minutes: p.minutes,
       lamports: p.lamports,
-      recipients: p.recipients,
       status: p.status,
       signature: p.signature,
-      explorerUrl: p.signature ? explorerTxUrl(p.signature) : null,
+      explorerUrl: explorerUrlFor(p.signature),
       roast: p.roast,
       createdAt: p.createdAt,
     })),
     totals: {
       stakedLamports: members.reduce((sum, m) => sum + m.stakedLamports, 0),
-      paidOutLamports: confirmed.reduce((sum, p) => sum + p.lamports, 0),
+      penaltyPoolLamports: settlement?.status === "confirmed" ? settlement.poolLamports : poolBeforeSettle,
     },
   };
 }
