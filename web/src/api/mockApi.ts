@@ -1,325 +1,319 @@
 import { DEMO_GROUP_ID } from '../config'
-import {
-  MAX_MEMBERS,
-  MIN_MEMBERS_TO_START,
-  type CreateGroupInput,
-  type GroupState,
-  type Member,
-  type RankEvent,
-  type SessionPreset,
-  type SessionResult,
+import type {
+  CreateGroupInput,
+  GroupState,
+  Member,
+  Penalty,
+  Rules,
+  Settlement,
 } from '../types'
 import { ApiError, type Api } from './base'
 
-// Simulated "lowest screen time takes the pot" race. Every session runs for 90 s in demo
-// mode, whatever preset was chosen. Usage follows a fixed script so the demo is reliable:
-// Alice leads early, Carol takes over after Alice's TikTok binge, Bob wins at the end.
+// Simulated winner-takes-pool race (docs/contract.md v0.5). Every demo period runs 90 s of
+// real time, with screen time compressed so minutes add up fast:
+//  - minutes over the allowance are charged every 10 s (one penalty per member per tick),
+//    first "sent", then "confirmed" a few seconds later, and moved into the penalty pool;
+//  - the staked member with the lowest blocked time is "leading" and wins the pool;
+//  - 3 s after the end the pool is settled; then members can withdraw.
+// Alice leads early, Carol takes over after Alice's TikTok binge, Bob passes Carol during her
+// YouTube hole, and Carol wins it back by going clean for the last 15 s.
 
-const MOCK_SESSION_MS = 90_000
-const SETTLE_DELAY_MS = 2_000
-const DEFAULT_STAKE = 500_000_000 // 0.5 SOL
+const MOCK_PERIOD_MS = 90_000
+const TICK_SEC = 10 // like the backend's WORKER_INTERVAL_SEC
+const CONFIRM_DELAY_MS = 3_000
+const SETTLE_DELAY_MS = 3_000 // the real backend waits ~30 s
 const JOIN_CODE = 'TAX42Z'
-const PROGRAM_ID = '6sCrwiknWJUMwJ8By4a9m6LPdSgjxr7YYd6RMexXuF8U'
+const PROGRAM_ID = 'GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi'
 const GROUP_PDA = 'CMx7Jm8hHqbxyKDXMxbeWikjyVrJnUn1LrEnB2bPqxXm'
+const SOL = 1_000_000_000
 
-const PROCESS_APPS = new Set(['Valorant', 'League of Legends', 'Steam', 'Discord'])
-const OFFLINE = 'Tracker offline'
+const DEFAULT_RULES: Rules = { allowanceMinutes: 1, tariffLamportsPerMinute: 10_000_000 }
 
-// rate = screen-time seconds added per real second (demo time is compressed).
-type Segment = { from: number; to: number; rate: number; app: string }
-type Scripted = { wallet: string; displayName: string; segments: Segment[] }
+// What a member is doing during a stretch of the period. `rate` = blocked seconds added per
+// real second (demo time is compressed). Idle and unblocked stretches add nothing.
+type Activity =
+  | { kind: 'process' | 'title'; app: string; rate: number }
+  | { kind: 'idle' } // tracker online, no input: games don't count while idle
+  | { kind: 'clear' } // tracker online, not on a blocked app
+  | { kind: 'offline'; rate: number } // missed check-ins count as "Tracker offline"
+type Segment = { from: number; to: number } & Activity
+type Scripted = {
+  wallet: string
+  displayName: string
+  stakeLamports: number // 0 = joined but never staked
+  segments: Segment[]
+}
+
+const OFFLINE_APP = 'Tracker offline'
 
 const SCRIPT: Scripted[] = [
   {
     wallet: 'H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx',
     displayName: 'Alice',
+    stakeLamports: 0.5 * SOL,
     segments: [
-      { from: 0, to: 30, rate: 5, app: 'TikTok' },
-      { from: 30, to: 60, rate: 40, app: 'TikTok' },
-      { from: 60, to: 90, rate: 10, app: 'YouTube' },
+      { from: 0, to: 30, kind: 'title', app: 'TikTok', rate: 5 },
+      { from: 30, to: 60, kind: 'title', app: 'TikTok', rate: 40 },
+      { from: 60, to: 90, kind: 'title', app: 'YouTube', rate: 10 },
     ],
   },
   {
     wallet: 'rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm',
     displayName: 'Bob',
+    stakeLamports: 0.5 * SOL,
     segments: [
-      { from: 0, to: 30, rate: 15, app: 'Steam' },
-      { from: 30, to: 90, rate: 8, app: 'Discord' },
+      { from: 0, to: 30, kind: 'process', app: 'Team Fortress 2', rate: 15 }, // Steam game
+      { from: 30, to: 90, kind: 'process', app: 'Discord', rate: 8 },
     ],
   },
   {
     wallet: 'HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos',
     displayName: 'Carol',
+    stakeLamports: 0.3 * SOL,
     segments: [
-      { from: 0, to: 30, rate: 10, app: 'Reddit' },
-      { from: 30, to: 60, rate: 5, app: 'Reddit' },
-      { from: 60, to: 75, rate: 30, app: 'YouTube' },
-      { from: 75, to: 90, rate: 5, app: 'Reddit' },
+      { from: 0, to: 30, kind: 'title', app: 'Reddit', rate: 10 },
+      { from: 30, to: 60, kind: 'title', app: 'Reddit', rate: 5 },
+      { from: 60, to: 75, kind: 'title', app: 'YouTube', rate: 30 },
+      { from: 75, to: 90, kind: 'clear' },
     ],
   },
   {
     wallet: '7d4KQmVvJ8hxfS2nTq1rP9cYbW3eL6uA5gZ2kHjN8oXi',
     displayName: 'Dave',
+    stakeLamports: 1 * SOL,
     segments: [
-      { from: 0, to: 45, rate: 20, app: 'League of Legends' },
-      { from: 45, to: 90, rate: 2, app: 'Discord' },
+      { from: 0, to: 45, kind: 'process', app: 'League of Legends', rate: 20 },
+      { from: 45, to: 90, kind: 'process', app: 'Discord', rate: 2 },
     ],
   },
   {
     wallet: '4mT9xLwQ2sR7vB1nC8dF3gH6jK5pZ0aY9eU2iO4qW7tE',
     displayName: 'Erin',
-    segments: [{ from: 0, to: 90, rate: 12, app: 'Instagram' }],
+    stakeLamports: 0.5 * SOL,
+    segments: [
+      { from: 0, to: 40, kind: 'title', app: 'Instagram', rate: 14 },
+      { from: 40, to: 65, kind: 'idle' }, // walked away from Valorant: not counted
+      { from: 65, to: 90, kind: 'process', app: 'Valorant', rate: 18 },
+    ],
   },
   {
     wallet: '9pL2kJ7hG4fD1sA8zX5cV3bN6mQ0wE2rT9yU4iO7pLkJ',
     displayName: 'Frank',
+    stakeLamports: 0.25 * SOL,
     segments: [
-      { from: 0, to: 20, rate: 8, app: 'YouTube' },
-      { from: 20, to: 50, rate: 25, app: OFFLINE }, // closed the tracker: counts anyway
-      { from: 50, to: 90, rate: 6, app: 'Twitch' },
+      { from: 0, to: 20, kind: 'title', app: 'YouTube', rate: 8 },
+      { from: 20, to: 50, kind: 'offline', rate: 25 }, // closed the tracker: counts anyway
+      { from: 50, to: 90, kind: 'process', app: 'Elden Ring', rate: 6 }, // Steam game
     ],
+  },
+  {
+    wallet: 'Fq8nW3xK2vB7cM5rT1yJ9hD4gL6sA0pE3uZ8iO2kN5w',
+    displayName: 'Hana',
+    stakeLamports: 0, // joined, never staked: can't be charged, can't win
+    segments: [{ from: 0, to: 90, kind: 'title', app: 'TikTok', rate: 3 }],
   },
 ]
 
-// Real wallets that join in the mock have no tracker, so their time counts as offline.
-const UNPAIRED_SEGMENTS: Segment[] = [{ from: 0, to: 90, rate: 13, app: OFFLINE }]
 
-const ROASTS: ((winner: string, loser: string) => string)[] = [
-  (w, l) => `${l} opened TikTok "for one second." ${w} sends thanks.`,
-  (w, l) => `${w} touched grass. ${l} touched the For You page.`,
-  (w, l) => `${l}'s screen time has its own zip code now. ${w} moves up.`,
-  (w) => `${w} is suspiciously productive. The tax collector is watching.`,
-]
-
-type Extra = { wallet: string; displayName: string; joinedAt: number; staked: boolean }
+type Extra = { wallet: string; displayName: string; stakeLamports: number }
 
 type Session = {
   name: string
-  preset: SessionPreset
-  stakeLamports: number
-  creatorWallet: string
-  startedAt: number | null // null = upcoming
-  createdAt: number
-  extras: Extra[]
+  rules: Rules
+  periodStart: number
+  extras: Extra[] // real wallets that created/joined in this tab
+  withdrawn: Set<string>
 }
 
 function demoSession(): Session {
-  const now = Date.now()
   return {
     name: 'Finals Week Survivors',
-    preset: 'demo',
-    stakeLamports: DEFAULT_STAKE,
-    creatorWallet: SCRIPT[0].wallet,
-    startedAt: now, // the demo group starts racing as soon as the page loads
-    createdAt: now,
+    rules: DEFAULT_RULES,
+    periodStart: Date.now(),
     extras: [],
+    withdrawn: new Set(),
   }
 }
 
 let session: Session = demoSession()
 
-/** Mock only: restart the 90 s demo race from zero. */
+/** Mock only: restart the demo period from zero. */
 export function restartDemo() {
   session = demoSession()
 }
 
-type Racer = {
-  wallet: string
-  displayName: string
-  joinedAt: number
-  staked: boolean
-  segments: Segment[]
-}
+type Racer = { wallet: string; displayName: string; stakeLamports: number; segments: Segment[] }
 
 function racers(): Racer[] {
   return [
-    ...SCRIPT.map((s) => ({
-      wallet: s.wallet,
-      displayName: s.displayName,
-      joinedAt: session.createdAt,
-      staked: true,
-      segments: s.segments,
-    })),
-    ...session.extras.map((e) => ({ ...e, segments: UNPAIRED_SEGMENTS })),
+    ...SCRIPT,
+    // Real wallets have no tracker in the mock, so they record no usage.
+    ...session.extras.map((e) => ({ ...e, segments: [] as Segment[] })),
   ]
 }
 
-/** Usage after `t` seconds of the session. */
 function usageAt(segments: Segment[], t: number) {
-  let blocked = 0
-  let offline = 0
   const byApp = new Map<string, number>()
+  let offline = 0
   for (const s of segments) {
+    if (s.kind === 'idle' || s.kind === 'clear') continue
     const secs = Math.max(0, Math.min(t, s.to) - s.from) * s.rate
     if (secs <= 0) continue
-    if (s.app === OFFLINE) offline += secs
-    else blocked += secs
-    byApp.set(s.app, (byApp.get(s.app) ?? 0) + secs)
+    const app = s.kind === 'offline' ? OFFLINE_APP : s.app
+    if (s.kind === 'offline') offline += secs
+    byApp.set(app, (byApp.get(app) ?? 0) + secs)
   }
-  return {
-    totalSeconds: Math.round(blocked + offline),
-    blockedSeconds: Math.round(blocked),
-    offlineSeconds: Math.round(offline),
-    byApp: [...byApp.entries()]
-      .map(([app, seconds]) => ({ app, seconds: Math.round(seconds) }))
-      .sort((a, b) => b.seconds - a.seconds),
-  }
+  const list = [...byApp.entries()]
+    .map(([app, seconds]) => ({ app, seconds: Math.round(seconds) }))
+    .sort((a, b) => b.seconds - a.seconds)
+  const blockedSeconds = list.reduce((sum, a) => sum + a.seconds, 0)
+  return { blockedSeconds, offlineMinutes: Math.floor(offline / 60), byApp: list }
 }
 
 function segmentAt(segments: Segment[], t: number): Segment | null {
   return segments.find((s) => t >= s.from && t < s.to) ?? null
 }
 
-/** Competition ranking (1, 1, 3) by total seconds, lowest first. Staked racers only. */
-function rankAt(list: Racer[], t: number): Map<string, number> {
-  const totals = list
-    .filter((r) => r.staked)
-    .map((r) => ({ wallet: r.wallet, total: usageAt(r.segments, t).totalSeconds }))
-    .sort((a, b) => a.total - b.total)
-  const ranks = new Map<string, number>()
-  totals.forEach((x, i) => {
-    const prev = totals[i - 1]
-    ranks.set(x.wallet, prev && prev.total === x.total ? ranks.get(prev.wallet)! : i + 1)
-  })
-  return ranks
-}
-
-function leaderOf(ranks: Map<string, number>): string | null {
-  const firsts = [...ranks.entries()].filter(([, r]) => r === 1)
-  return firsts.length === 1 ? firsts[0][0] : null // a tie for 1st has no single leader
-}
-
-/** Replays the race second by second to build the rank-change feed. */
-function buildEvents(list: Racer[], startedAt: number, elapsedSec: number, ended: boolean) {
-  const name = new Map(list.map((r) => [r.wallet, r.displayName]))
-  const events: RankEvent[] = [
-    {
-      eventId: 'start',
-      kind: 'session_started',
-      wallet: null,
-      displayName: null,
-      otherWallet: null,
-      otherDisplayName: null,
-      newRank: null,
-      roast: null,
-      createdAt: startedAt,
-    },
-  ]
-  let prev = rankAt(list, 1)
-  let roastIdx = 0
-  for (let s = 2; s <= elapsedSec; s++) {
-    const cur = rankAt(list, s)
-    const prevLeader = leaderOf(prev)
-    const curLeader = leaderOf(cur)
-    for (const [wallet, rank] of cur) {
-      const before = prev.get(wallet)
-      if (before === undefined || rank >= before || rank > 3) continue
-      // Who did they pass? Someone now ranked right below them who used to be ahead.
-      const passed = [...cur.entries()].find(
-        ([w, r]) => w !== wallet && r > rank && (prev.get(w) ?? 99) <= rank,
-      )?.[0]
-      const tookLead = rank === 1 && curLeader === wallet && prevLeader !== wallet
-      const other = tookLead ? prevLeader ?? passed : passed
-      events.push({
-        eventId: `e-${s}-${wallet}`,
-        kind: tookLead ? 'took_lead' : 'passed',
-        wallet,
-        displayName: name.get(wallet) ?? '?',
-        otherWallet: other ?? null,
-        otherDisplayName: other ? name.get(other) ?? '?' : null,
-        newRank: rank,
-        roast:
-          tookLead && other
-            ? ROASTS[roastIdx++ % ROASTS.length](name.get(wallet) ?? '?', name.get(other) ?? '?')
-            : null,
-        createdAt: startedAt + s * 1000,
+/** Penalties issued so far: one per member per worker tick, for new minutes over the allowance. */
+function penaltiesAt(list: Racer[], elapsedSec: number, now: number): Penalty[] {
+  const { allowanceMinutes, tariffLamportsPerMinute } = session.rules
+  const out: Penalty[] = []
+  for (const r of list) {
+    if (r.stakeLamports === 0) continue // can't charge a member who never staked
+    let charged = 0
+    let chargedLamports = 0
+    for (let tick = TICK_SEC; tick <= elapsedSec; tick += TICK_SEC) {
+      const u = usageAt(r.segments, tick)
+      const over = Math.max(0, Math.floor(u.blockedSeconds / 60) - allowanceMinutes)
+      const minutes = over - charged
+      if (minutes <= 0) continue
+      const lamports = Math.min(minutes * tariffLamportsPerMinute, r.stakeLamports - chargedLamports)
+      if (lamports <= 0) break // stake fully used up
+      const seg = segmentAt(r.segments, tick - 0.001)
+      const app =
+        seg?.kind === 'offline' ? OFFLINE_APP : seg && 'app' in seg ? seg.app : u.byApp[0]?.app ?? '?'
+      const createdAt = session.periodStart + tick * 1000
+      const confirmed = now - createdAt >= CONFIRM_DELAY_MS
+      out.push({
+        penaltyId: `p-${r.displayName}-${tick}`,
+        wallet: r.wallet,
+        displayName: r.displayName,
+        app,
+        minutes,
+        lamports,
+        status: confirmed ? 'confirmed' : 'sent',
+        signature: null, // mock: no real transaction
+        explorerUrl: null,
+        createdAt,
       })
+      charged = over
+      chargedLamports += lamports
     }
-    prev = cur
   }
-  if (ended) {
-    events.push({
-      eventId: 'end',
-      kind: 'session_ended',
-      wallet: null,
-      displayName: null,
-      otherWallet: null,
-      otherDisplayName: null,
-      newRank: null,
-      roast: null,
-      createdAt: startedAt + MOCK_SESSION_MS,
-    })
-  }
-  return events.sort((a, b) => b.createdAt - a.createdAt).slice(0, 50)
+  return out.sort((a, b) => b.createdAt - a.createdAt)
 }
 
 function buildState(): GroupState {
   const now = Date.now()
   const list = racers()
-  const { startedAt } = session
-  const periodEnd = startedAt === null ? null : startedAt + MOCK_SESSION_MS
-  const status =
-    startedAt === null
-      ? 'upcoming'
-      : now < periodEnd!
-        ? 'active'
-        : now < periodEnd! + SETTLE_DELAY_MS
-          ? 'ended'
-          : 'settled'
-  const elapsedMs = startedAt === null ? 0 : Math.min(now - startedAt, MOCK_SESSION_MS)
+  const { periodStart, rules } = session
+  const periodEnd = periodStart + MOCK_PERIOD_MS
+  const status = now < periodStart ? 'upcoming' : now > periodEnd ? 'ended' : 'active'
+  const elapsedMs = Math.min(Math.max(0, now - periodStart), MOCK_PERIOD_MS)
   const t = elapsedMs / 1000
   const running = status === 'active'
-  const ranks = startedAt === null ? new Map<string, number>() : rankAt(list, t)
+
+  const penalties = penaltiesAt(list, Math.floor(t), now)
+  const confirmed = penalties.filter((p) => p.status === 'confirmed')
+  const pool = confirmed.reduce((sum, p) => sum + p.lamports, 0)
+
+  // Settlement: lowest blocked time among staked members wins the pool; ties split it.
+  let settlement: Settlement | null = null
+  const usage = new Map(list.map((r) => [r.wallet, usageAt(r.segments, t)]))
+  const staked = list.filter((r) => r.stakeLamports > 0)
+  if (status === 'ended' && now >= periodEnd + SETTLE_DELAY_MS) {
+    if (staked.length === 0) {
+      settlement = { status: 'skipped', poolLamports: 0, winners: [], signature: null, explorerUrl: null, settledAt: now }
+    } else {
+      const best = Math.min(...staked.map((r) => usage.get(r.wallet)!.blockedSeconds))
+      const winners = staked.filter((r) => usage.get(r.wallet)!.blockedSeconds === best)
+      const share = Math.floor(pool / winners.length)
+      settlement = {
+        status: 'confirmed',
+        poolLamports: pool,
+        winners: winners.map((w, i) => ({
+          wallet: w.wallet,
+          displayName: w.displayName,
+          prizeLamports: share + (i === 0 ? pool - share * winners.length : 0),
+        })),
+        signature: null, // mock: no on-chain settle transaction
+        explorerUrl: null,
+        settledAt: periodEnd + SETTLE_DELAY_MS,
+      }
+    }
+  }
 
   const members: Member[] = list.map((r) => {
-    const seg = running ? segmentAt(r.segments, t) : null
-    const offlineNow = seg?.app === OFFLINE
+    const u = usage.get(r.wallet)!
+    const paid = confirmed.filter((p) => p.wallet === r.wallet)
+    const slashed = paid.reduce((sum, p) => sum + p.lamports, 0)
+    const prize = settlement?.winners.find((w) => w.wallet === r.wallet)?.prizeLamports ?? 0
     const isScripted = SCRIPT.some((s) => s.wallet === r.wallet)
+    const seg = running ? segmentAt(r.segments, t) : null
+    const offlineNow = seg?.kind === 'offline'
+    const blockedMinutes = Math.floor(u.blockedSeconds / 60)
     return {
       wallet: r.wallet,
       displayName: r.displayName,
-      joinedAt: r.joinedAt,
-      staked: r.staked,
-      stakedLamports: r.staked ? session.stakeLamports : 0,
-      rank: ranks.get(r.wallet) ?? null,
-      usage: r.staked
-        ? usageAt(r.segments, t)
-        : { totalSeconds: 0, blockedSeconds: 0, offlineSeconds: 0, byApp: [] },
+      staked: r.stakeLamports > 0,
+      stakedLamports: r.stakeLamports,
+      slashedLamports: slashed,
+      receivedLamports: prize,
+      remainingLamports: r.stakeLamports - slashed + prize,
+      withdrawn: session.withdrawn.has(r.wallet),
+      usage: {
+        blockedSeconds: u.blockedSeconds,
+        blockedMinutes,
+        minutesOver: Math.max(0, blockedMinutes - rules.allowanceMinutes),
+        minutesCharged: paid.reduce((sum, p) => sum + p.minutes, 0),
+        offlineMinutes: u.offlineMinutes,
+        byApp: u.byApp,
+      },
       current:
-        seg && !offlineNow && r.staked
-          ? {
-              app: seg.app,
-              matchType: PROCESS_APPS.has(seg.app) ? 'process' : 'title',
-              since: (startedAt ?? now) + seg.from * 1000,
-            }
+        seg && (seg.kind === 'process' || seg.kind === 'title')
+          ? { app: seg.app, matchType: seg.kind, since: periodStart + seg.from * 1000 }
           : null,
       tracker: isScripted
-        ? { paired: true, online: !offlineNow, lastSeenAt: offlineNow ? null : now - 1500 }
-        : { paired: false, online: false, lastSeenAt: null },
+        ? {
+            paired: true,
+            online: !offlineNow,
+            lastSeenAt: offlineNow ? periodStart + (seg?.from ?? 0) * 1000 : now - 1500,
+            idle: seg?.kind === 'idle',
+          }
+        : { paired: false, online: false, lastSeenAt: null, idle: false },
     }
   })
-  members.sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99) || a.joinedAt - b.joinedAt)
 
-  const staked = members.filter((m) => m.staked)
-  const pot = staked.length * session.stakeLamports
-
-  let result: SessionResult | null = null
-  if (status === 'settled') {
-    const winners = staked.filter((m) => m.rank === 1)
-    const share = Math.floor(pot / winners.length)
-    const remainder = pot - share * winners.length
-    result = {
-      winners: winners.map((w, i) => ({
-        wallet: w.wallet,
-        displayName: w.displayName,
-        payoutLamports: share + (i === 0 ? remainder : 0),
-      })),
-      potLamports: pot,
-      signature: null, // mock: no on-chain settle transaction
-      explorerUrl: null,
-      settledAt: periodEnd! + SETTLE_DELAY_MS,
-    }
-  }
+  // Staked first, then lowest blocked time, then name (same order as the backend).
+  const best = staked.length
+    ? Math.min(...members.filter((m) => m.staked).map((m) => m.usage.blockedSeconds))
+    : null
+  const leaderboard = [...members]
+    .sort(
+      (a, b) =>
+        Number(b.staked) - Number(a.staked) ||
+        a.usage.blockedSeconds - b.usage.blockedSeconds ||
+        a.displayName.localeCompare(b.displayName),
+    )
+    .map((m, i) => ({
+      wallet: m.wallet,
+      displayName: m.displayName,
+      blockedMinutes: m.usage.blockedMinutes,
+      rank: i + 1,
+      leading: settlement
+        ? settlement.winners.some((w) => w.wallet === m.wallet)
+        : m.staked && m.usage.blockedSeconds === best,
+    }))
 
   return {
     serverTime: now,
@@ -329,32 +323,39 @@ function buildState(): GroupState {
       joinCode: JOIN_CODE,
       groupPda: GROUP_PDA,
       programId: PROGRAM_ID,
-      creatorWallet: session.creatorWallet,
+      chainMode: 'mock',
       status,
-      periodStart: startedAt,
+      periodStart,
       periodEnd,
       demoMode: true,
-      rules: {
-        stakeLamports: session.stakeLamports,
-        sessionPreset: session.preset,
-        sessionMs: MOCK_SESSION_MS,
-        maxMembers: MAX_MEMBERS,
-      },
-      blocklist: { processes: [], titles: [] },
+      rules,
+      blocklist: { processes: [], titles: [], steamGames: true },
+      settlement,
     },
     members,
-    events:
-      startedAt === null
-        ? []
-        : buildEvents(list, startedAt, Math.floor(t), status !== 'active'),
-    totals: { potLamports: pot, stakedMembers: staked.length },
-    result,
+    leaderboard,
+    penalties: penalties.slice(0, 50),
+    totals: {
+      stakedLamports: members.reduce((sum, m) => sum + m.stakedLamports, 0),
+      penaltyPoolLamports: settlement?.poolLamports ?? pool,
+    },
   }
 }
 
-function requireUpcoming(action: string) {
-  if (session.startedAt !== null) {
-    throw new ApiError('SESSION_STARTED', `The session already started, so ${action} is closed.`)
+function ensureExtra(wallet: string, displayName: string): Extra {
+  let e = session.extras.find((x) => x.wallet === wallet)
+  if (!e) {
+    e = { wallet, displayName, stakeLamports: 0 }
+    session.extras.push(e)
+  } else if (displayName) {
+    e.displayName = displayName
+  }
+  return e
+}
+
+function requireActive(action: string) {
+  if (Date.now() > session.periodStart + MOCK_PERIOD_MS) {
+    throw new ApiError('PERIOD_ENDED', `This group's period has ended, so ${action} is closed.`)
   }
 }
 
@@ -371,15 +372,16 @@ export const mockApi: Api = {
 
   async createGroup(input: CreateGroupInput, wallet) {
     await delay()
-    // Demo: replace the running race with a new upcoming group (creator + scripted friends).
+    // Demo: start a fresh period with your rules (always 90 s in demo mode) plus the scripted friends.
     session = {
       name: input.name,
-      preset: input.sessionPreset,
-      stakeLamports: input.stakeLamports,
-      creatorWallet: wallet,
-      startedAt: null,
-      createdAt: Date.now(),
-      extras: [{ wallet, displayName: input.displayName, joinedAt: Date.now(), staked: false }],
+      rules: {
+        allowanceMinutes: input.allowanceMinutes,
+        tariffLamportsPerMinute: input.tariffLamportsPerMinute,
+      },
+      periodStart: Date.now(),
+      extras: [{ wallet, displayName: input.displayName, stakeLamports: 0 }],
+      withdrawn: new Set(),
     }
     return { groupId: DEMO_GROUP_ID, joinCode: JOIN_CODE }
   },
@@ -387,43 +389,36 @@ export const mockApi: Api = {
   async joinGroup(joinCode, displayName, wallet) {
     await delay()
     if (joinCode.trim().toUpperCase() !== JOIN_CODE) {
-      throw new ApiError('JOIN_CODE_INVALID', 'That invite code was not found.')
+      throw new ApiError('GROUP_NOT_FOUND', 'No group with that join code.')
     }
-    requireUpcoming('joining')
-    const existing = session.extras.find((e) => e.wallet === wallet)
-    if (existing) {
-      existing.displayName = displayName
-    } else {
-      if (SCRIPT.length + session.extras.length >= MAX_MEMBERS) {
-        throw new ApiError('GROUP_FULL', `This group is full (${MAX_MEMBERS} members max).`)
-      }
-      session.extras.push({ wallet, displayName, joinedAt: Date.now(), staked: false })
+    requireActive('joining')
+    if (!session.extras.some((e) => e.wallet === wallet) && racers().length >= 8) {
+      throw new ApiError('GROUP_FULL', 'Groups are limited to 8 members.')
     }
+    ensureExtra(wallet, displayName)
     return { groupId: DEMO_GROUP_ID }
   },
 
-  async recordStake(_groupId, wallet) {
+  async recordStake(_groupId, lamports, wallet) {
     await delay(600)
-    requireUpcoming('staking')
+    requireActive('staking')
     const me = session.extras.find((e) => e.wallet === wallet)
     if (!me) throw new ApiError('NOT_A_MEMBER', 'Join the group before staking.')
-    if (me.staked) throw new ApiError('ALREADY_STAKED', 'You already paid the entry stake.')
-    me.staked = true
+    me.stakeLamports += lamports
     return { ok: true, signature: null } // mock: no on-chain transaction
   },
 
-  async startSession(_groupId, wallet) {
-    await delay()
-    requireUpcoming('starting')
-    if (wallet !== session.creatorWallet) {
-      throw new ApiError('NOT_CREATOR', 'Only the group creator can start the session.')
+  async withdraw(_groupId, wallet) {
+    await delay(600)
+    const state = buildState()
+    if (state.group.settlement?.status !== 'confirmed') {
+      throw new ApiError('NOT_SETTLED', 'You can withdraw once the pool has been settled.')
     }
-    const stakedCount = racers().filter((r) => r.staked).length
-    if (stakedCount < MIN_MEMBERS_TO_START) {
-      throw new ApiError('NOT_ENOUGH_MEMBERS', `At least ${MIN_MEMBERS_TO_START} staked members are needed.`)
-    }
-    session.startedAt = Date.now()
-    return { ok: true }
+    const me = state.members.find((m) => m.wallet === wallet)
+    if (!me || !me.staked) throw new ApiError('NOT_A_MEMBER', 'Only members who staked can withdraw.')
+    if (me.withdrawn) throw new ApiError('ALREADY_WITHDRAWN', 'You already withdrew.')
+    session.withdrawn.add(wallet)
+    return { ok: true, signature: null }
   },
 
   async startPairing() {

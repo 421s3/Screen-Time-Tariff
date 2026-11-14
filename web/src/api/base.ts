@@ -24,10 +24,13 @@ export interface Api {
     displayName: string,
     wallet: string,
   ): Promise<{ groupId: string }>
-  /** Pays the group's fixed entry stake. */
-  recordStake(groupId: string, wallet: string): Promise<{ ok: true; signature: string | null }>
-  /** Creator only, while upcoming. Closes joining and starts the clock. */
-  startSession(groupId: string, wallet: string): Promise<{ ok: true }>
+  recordStake(
+    groupId: string,
+    lamports: number,
+    wallet: string,
+  ): Promise<{ ok: true; signature: string | null }>
+  /** After settlement: take back remaining stake + any prize. */
+  withdraw(groupId: string, wallet: string): Promise<{ ok: true; signature: string | null }>
   startPairing(
     groupId: string,
     wallet: string,
