@@ -44,7 +44,7 @@ The project is **Screen Time Tariff** (described below). It's a draft plan: the 
                                                                             └────────────────────┘
 ```
 
-Planned folders (not created yet): `program/`, `backend/`, `tracker/`, `web/`.
+Folders: `program/`, `backend/`, `tracker/`, `web/` (each has a README with setup steps), plus `docs/`. **`docs/contract.md` is the interface contract** (API formats, program accounts/seeds, units, blocklist format). **`docs/mock-state.json`** is a full sample `/state` response. Build against both, and tell the team before changing either.
 
 #### 1. On-chain program (Anchor, Solana devnet)
 
