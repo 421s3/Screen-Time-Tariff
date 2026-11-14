@@ -125,7 +125,6 @@ export interface PenaltyDoc {
   signature: string | null;
   attempts: number;
   lastError: string | null;
-  roast: string | null;
   createdAt: number;
   updatedAt: number;
 }

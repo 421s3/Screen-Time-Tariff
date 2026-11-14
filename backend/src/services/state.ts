@@ -42,7 +42,6 @@ export interface PenaltyState {
   status: PenaltyStatus;
   signature: string | null;
   explorerUrl: string | null;
-  roast: string | null;
   createdAt: number;
 }
 
@@ -198,7 +197,6 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       status: p.status,
       signature: p.signature,
       explorerUrl: explorerUrlFor(p.signature),
-      roast: p.roast,
       createdAt: p.createdAt,
     })),
     totals: {
