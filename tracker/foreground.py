@@ -6,10 +6,19 @@ from typing import Optional
 import psutil
 
 try:
+    import win32api
     import win32gui
     import win32process
 except ImportError:  # non-Windows machines can still import this module and run the tests
-    win32gui = win32process = None
+    win32api = win32gui = win32process = None
+
+
+def idle_seconds() -> float:
+    """Seconds since the last keyboard/mouse input (0 where unsupported)."""
+    if win32api is None:
+        return 0.0
+    # Both are 32-bit tick counts that wrap every ~49.7 days; the mask keeps the difference right
+    return ((win32api.GetTickCount() - win32api.GetLastInputInfo()) & 0xFFFFFFFF) / 1000.0
 
 
 @dataclass(frozen=True)

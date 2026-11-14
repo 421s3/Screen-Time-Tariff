@@ -1,5 +1,16 @@
 {
-  "processes": ["VALORANT-Win64-Shipping.exe", "League of Legends.exe", "steam.exe", "Discord.exe"],
-  "titles": ["TikTok", "YouTube", "Reddit", "Instagram", "Twitch"],
+  "processes": [
+    { "match": "VALORANT-Win64-Shipping.exe", "label": "Valorant" },
+    { "match": "League of Legends.exe",       "label": "League of Legends" },
+    { "match": "steam.exe",                   "label": "Steam" },
+    { "match": "Discord.exe",                 "label": "Discord" }
+  ],
+  "titles": [
+    { "match": "TikTok",    "label": "TikTok" },
+    { "match": "YouTube",   "label": "YouTube" },
+    { "match": "Reddit",    "label": "Reddit" },
+    { "match": "Instagram", "label": "Instagram" },
+    { "match": "Twitch",    "label": "Twitch" }
+  ],
   "browsers": ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "opera_gx.exe", "vivaldi.exe", "arc.exe"]
 }

@@ -1,18 +1,19 @@
 """Blocklist loading and matching.
 
-Format (same shape the backend stores with each group's rules):
+Format (docs/contract.md section 5; the backend sends it in GET /tracker/config):
     {
-      "processes": ["VALORANT-Win64-Shipping.exe", ...],   # exact exe name, case-insensitive
-      "titles":    ["TikTok", "YouTube", ...],             # whole word in a browser window title
-      "browsers":  ["chrome.exe", ...]                     # optional; which exes count as browsers
+      "processes": [{"match": "VALORANT-Win64-Shipping.exe", "label": "Valorant"}, ...],
+      "titles":    [{"match": "TikTok", "label": "TikTok"}, ...],
+      "browsers":  ["chrome.exe", ...]          # tracker extension, optional
     }
+Plain strings are also accepted as entries ("TikTok" == {"match": "TikTok", "label": "TikTok"}).
 """
 
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from foreground import Sample
 
@@ -22,45 +23,68 @@ DEFAULT_BROWSERS = (
 )
 
 
+class Match(NamedTuple):
+    label: str  # reported as "app"
+    match_type: str  # "process" or "title"
+
+
+def _entry(value, key):
+    if isinstance(value, str):
+        value = {"match": value}
+    if not isinstance(value, dict):
+        raise ValueError(f"blocklist '{key}' entries must be strings or {{match, label}} objects")
+    match, label = value.get("match"), value.get("label", value.get("match"))
+    if not all(isinstance(v, str) and v.strip() for v in (match, label)):
+        raise ValueError(f"blocklist '{key}' entries need a non-empty 'match' (and 'label' if given)")
+    return {"match": match.strip(), "label": label.strip()}
+
+
 @dataclass
 class Blocklist:
-    processes: list = field(default_factory=list)
+    processes: list = field(default_factory=list)  # [{"match", "label"}]
     titles: list = field(default_factory=list)
     browsers: list = field(default_factory=lambda: list(DEFAULT_BROWSERS))
 
     def __post_init__(self):
-        self._procs = {p.lower(): p for p in self.processes}
+        self._procs = {}
+        for e in self.processes:
+            self._procs.setdefault(e["match"].lower(), e["label"])  # first match in list order wins
         self._browsers = {b.lower() for b in self.browsers}
         # Whole-word match so "Reddit" doesn't hit "Redditch" and "YouTube" hits "YouTube Music"
-        self._title_res = [(t, re.compile(rf"(?<!\w){re.escape(t)}(?!\w)", re.IGNORECASE)) for t in self.titles]
+        self._title_res = [(e["label"], re.compile(rf"(?<!\w){re.escape(e['match'])}(?!\w)", re.IGNORECASE))
+                           for e in self.titles]
 
     @classmethod
     def from_dict(cls, data: dict) -> "Blocklist":
         if not isinstance(data, dict):
             raise ValueError("blocklist must be a JSON object")
         kwargs = {}
-        for key in ("processes", "titles", "browsers"):
-            if key in data:
-                value = data[key]
-                if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
-                    raise ValueError(f"blocklist '{key}' must be a list of non-empty strings")
-                kwargs[key] = [v.strip() for v in value]
+        for key in ("processes", "titles"):
+            value = data.get(key, [])
+            if not isinstance(value, list):
+                raise ValueError(f"blocklist '{key}' must be a list")
+            kwargs[key] = [_entry(v, key) for v in value]
+        if "browsers" in data:
+            value = data["browsers"]
+            if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+                raise ValueError("blocklist 'browsers' must be a list of non-empty strings")
+            kwargs["browsers"] = [v.strip() for v in value]
         return cls(**kwargs)
 
     @classmethod
     def load(cls, path) -> "Blocklist":
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
-    def match(self, sample: Optional[Sample]) -> Optional[str]:
-        """Return the blocklist entry the sample counts against, or None if it isn't blocked."""
+    def match(self, sample: Optional[Sample]) -> Optional[Match]:
+        """Return what the sample counts against, or None if it isn't blocked."""
         if sample is None:
             return None
         proc = sample.process.lower()
-        if proc in self._procs:
-            return self._procs[proc]
+        if proc in self._procs:  # process matches win over title matches
+            return Match(self._procs[proc], "process")
         # Titles only count in browsers, so an editor open on "youtube_notes.txt" isn't charged
         if proc in self._browsers:
-            for name, rx in self._title_res:
+            for label, rx in self._title_res:
                 if rx.search(sample.title):
-                    return name
+                    return Match(label, "title")
         return None
