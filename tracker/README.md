@@ -1,8 +1,14 @@
-# Tracker (Windows)
+# tracker/ — Windows screen-time tracker (Dev 3)
 
 Watches the window in front, checks it against the group's blocklist, and counts
 seconds spent on blocked apps and sites. **Checkpoint 1 prints usage locally;
 sending it to the backend comes next.**
+
+## Spec
+
+- Matching rules and blocklist format: [`../docs/contract.md`](../docs/contract.md) section 5
+- Endpoints it will call (`/pair/complete`, `/tracker/config`, `/usage`): section 4
+- Where the current code differs from the contract: see [Contract status](#contract-status) below.
 
 ## Setup
 
@@ -14,6 +20,8 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt        # add -dev to also get pytest
 ```
+
+`.env.example` (`API_URL`) is for the backend checkpoint; Checkpoint 1 doesn't read it yet.
 
 ## Run
 
@@ -35,6 +43,15 @@ Stop with Ctrl+C; it prints a final batch. Example output:
 **Check the real titles on the demo laptop:** open TikTok/YouTube in the demo browser
 and run `python tracker.py --once` to confirm each one shows `BLOCKED`.
 
+Planned for the backend checkpoint (not built yet):
+
+```
+python tracker.py          # pairs on first run (asks for the code from the dashboard), then tracks
+python tracker.py --fake   # sends synthetic usage, for testing without a browser
+```
+
+Copy `.env.example` to `.env` first. The pairing token will be saved to `.tracker_token.json` (gitignored).
+
 ## Tests
 
 ```powershell
@@ -44,7 +61,7 @@ python -m pytest
 
 ## Blocklist
 
-`blocklist.json` (later this comes from the group's rules on the backend):
+`blocklist.json` (later this comes from the group's rules via `/tracker/config`):
 
 ```json
 {
@@ -69,6 +86,8 @@ python -m pytest
   to a fixed schedule so it doesn't drift.
 - A gap longer than 3 intervals (sleep/hibernate, frozen loop) is capped at 3 intervals.
 - Batches report whole seconds; fractions carry over to the next batch, so nothing is lost.
+  The `totals` line is rounded to 0.1 s, so it can read `2.0` while the batch says `1`
+  (the other 0.99 s goes out in the next batch).
 - Lock screen / no window / protected process: counted as not blocked.
 
 ## Known limits
@@ -79,8 +98,22 @@ python -m pytest
 - Microsoft Store apps show up as `ApplicationFrameHost.exe`.
 - No idle detection: a blocked window left in front while AFK keeps counting.
 
-## Backend integration (next checkpoint)
+## Contract status
 
-Each batch is `[{"app": str, "seconds": int}, ...]`, only apps with ≥1 s, sent every 30 s.
-The plan is to POST it to `/usage` with the paired user and a check-in timestamp
-(ms, per `docs/contract.md`); empty batches still count as a check-in.
+Checkpoint 1 batches are `[{"app": str, "seconds": int}, ...]`, only apps with ≥1 s, every 30 s.
+To match `docs/contract.md` at the backend checkpoint, the tracker still needs:
+
+- Blocklist entries as `{ "match", "label" }` objects, reporting `label` as `app`.
+- `matchType` (`"process"` / `"title"`) on each event and on `current`.
+- `/usage` body: `batchId` (UUID, reused on retry), `sentAt`, `idle`, `current`, and
+  `events` with `startedAt`. Empty `events` still counts as a check-in.
+- Pairing via `/pair/complete`, config via `/tracker/config`, and idle detection
+  (`idleThresholdSec`).
+- Title matching: the code uses whole-word matching and a longer browser list; the
+  contract says substring and four browsers. Agree on one with Dev 4.
+
+## Privacy
+
+Only blocked matches will leave the machine: app label, match type, and seconds. No keystrokes,
+no browsing history, no titles of unblocked windows. (Checkpoint 1 sends nothing; titles are
+only printed to the local console.)
