@@ -36,7 +36,8 @@ pub mod screen_time_tariff {
         grace_secs: i64,
     ) -> Result<()> {
         require!(tariff_lamports_per_min > 0, TariffError::InvalidRules);
-        require!(grace_secs >= 0, TariffError::InvalidRules);
+        // grace_secs is the settle window; 0 would make settlement impossible.
+        require!(grace_secs > 0, TariffError::InvalidRules);
         require!(
             period_end > Clock::get()?.unix_timestamp,
             TariffError::InvalidRules
@@ -155,14 +156,28 @@ pub mod screen_time_tariff {
         Ok(())
     }
 
-    /// Oracle-only, after `period_end`, once. Remaining accounts are the winning
-    /// members' `Member` PDAs (writable), sorted by strictly ascending pubkey.
-    /// The pool is split equally; the remainder goes to the first (lowest) key.
+    /// Oracle-only, once, in the window [period_end, period_end + grace_secs).
+    /// Remaining accounts are the winning members' `Member` PDAs (writable),
+    /// sorted by strictly ascending pubkey. The pool is split equally; the
+    /// remainder goes to the first (lowest) key.
+    ///
+    /// The window closes when `emergency_refund` opens. Refunds return the full
+    /// deposit (including slashed lamports already counted in the pool), so
+    /// settling after any refund would pay the same lamports twice.
     pub fn settle<'info>(ctx: Context<'_, '_, 'info, 'info, Settle<'info>>) -> Result<()> {
         require!(!ctx.accounts.group.settled, TariffError::AlreadySettled);
+        let now = Clock::get()?.unix_timestamp;
         require!(
-            Clock::get()?.unix_timestamp >= ctx.accounts.group.period_end,
+            now >= ctx.accounts.group.period_end,
             TariffError::PeriodNotOver
+        );
+        require!(
+            now < ctx
+                .accounts
+                .group
+                .period_end
+                .saturating_add(ctx.accounts.group.grace_secs),
+            TariffError::GraceOver
         );
 
         let winners = ctx.remaining_accounts;
@@ -451,4 +466,6 @@ pub enum TariffError {
     AlreadyWithdrawn,
     #[msg("Math overflow")]
     Math,
+    #[msg("Settle window closed: period_end + grace_secs has passed (refunds are open)")]
+    GraceOver,
 }
