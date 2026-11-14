@@ -24,7 +24,7 @@ cp .env.example .env      # then fill in MONGODB_URI (get it from the team by DM
 npm run dev               # http://localhost:4000/health → {"ok":true}
 ```
 
-Other scripts: `npm run typecheck`, `npm run make-oracle`.
+Other scripts: `npm run check-db` (tests the Atlas connection), `npm run typecheck`, `npm run make-oracle`.
 
 ### Oracle keypair
 

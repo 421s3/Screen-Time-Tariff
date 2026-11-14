@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.1)
+# Interface Contract (draft v0.2: title matching is whole-word, blocklist has an optional `browsers` list)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -253,12 +253,14 @@ Stored per group, sent to the tracker by `/tracker/config`.
     { "match": "Reddit",    "label": "Reddit" },
     { "match": "Instagram", "label": "Instagram" },
     { "match": "Twitch",    "label": "Twitch" }
-  ]
+  ],
+  "browsers": ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "opera_gx.exe", "vivaldi.exe", "arc.exe"]
 }
 ```
-Matching rules:
+Matching rules (these follow the tracker's implementation in `tracker/blocklist.py`):
 - `processes`: case-insensitive **exact** match on the foreground process's file name. `matchType: "process"`.
-- `titles`: case-insensitive **substring** match on the foreground window title, **only when the process is a browser** (`chrome.exe`, `msedge.exe`, `firefox.exe`, `brave.exe`). `matchType: "title"`.
+- `titles`: case-insensitive **whole-word** match on the foreground window title (so "Reddit" doesn't match "Redditch", but "YouTube" matches "YouTube Music"), **only when the process is in `browsers`**. `matchType: "title"`.
+- `browsers`: optional. If it's missing, the tracker uses the 8 defaults shown above.
 - Process matches win over title matches. First match in list order wins.
 - `label` is what gets reported as `app` and shown on the dashboard.
 - Idle (no keyboard/mouse input for `idleThresholdSec`) is not counted. TBD at CP0: whether a blocked app playing video in front counts while idle (suggestion: yes for `title` matches, so watching YouTube hands-off still counts).
