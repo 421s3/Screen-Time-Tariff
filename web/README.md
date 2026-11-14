@@ -1,24 +1,34 @@
 # web/ — Dashboard (Dev 1)
 
-React + TypeScript + Tailwind + Solana wallet adapter (Phantom).
+Vite + React + TypeScript + Tailwind + Solana wallet adapter (Phantom, devnet only).
 
-## Getting started (owner: do this first)
+## Run
 
-This folder already exists, so scaffold into it:
+Needs Node.js 20+ and, to connect a wallet, the Phantom extension set to **Solana Devnet**.
 
 ```
-npm create vite@latest web -- --template react-ts
+cd web
+cp .env.example .env
+npm install
+npm run dev
 ```
 
-Run that from the repo root. When Vite says the folder isn't empty, choose **"Ignore files and continue"** so this README and `.env.example` are kept. Then add Tailwind and the Solana wallet adapter packages.
+Open http://localhost:5173.
+
+With `VITE_USE_MOCK=true` (the default) the whole app runs on simulated data and shows a **DEMO MODE** badge. No backend is needed: a scripted 90-second period starts on page load (penalties flow into the pool, then the lowest screen time wins it), and **Restart demo** in the header runs it again. Set `VITE_USE_MOCK=false` and `VITE_API_URL` to use the real backend (works with `CHAIN_MODE=off` or `mock` today).
+
+The game (contract v0.5, winner-takes-pool): members stake SOL; every minute over the allowance is charged at the tariff into the group's pool; when the period ends, the staked member with the lowest blocked time wins the whole pool (ties split it), and everyone withdraws what's left plus any prize.
+
+Other scripts: `npm run build` (type-check + production build), `npm run preview`, `npm run lint`.
 
 ## Build against
 
 - [`../docs/contract.md`](../docs/contract.md) — API formats (section 4) and the program's instructions (section 6)
-- [`../docs/mock-state.json`](../docs/mock-state.json) — a full `/state` response. Load this until the backend is up.
+- [`../docs/mock-state.json`](../docs/mock-state.json) — a sample `/state` response (`src/types.ts` mirrors it, plus `blocklist.steamGames` and `tracker.idle`, which the backend doesn't send yet)
 
-## Run
+## Layout
 
-_TODO (owner): fill in install and run commands._
-
-Copy `.env.example` to `.env` first.
+- `src/types.ts` — the `/state` contract types. Tell the backend devs before changing them.
+- `src/api/` — the only data access: `mockApi` (simulated live demo) and `realApi` (backend), picked by `VITE_USE_MOCK`.
+- `src/pages/` — Landing, Create, Join, Stake, Pair tracker, Dashboard, Results.
+- `src/components/` — layout, mascot (Tariff Tom), penalty feed, live activity badge, shared states (loading/empty/error/disconnected).

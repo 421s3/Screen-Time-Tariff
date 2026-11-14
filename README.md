@@ -1,6 +1,6 @@
 # Screen Time Tariff
 
-**Friends put SOL into a shared pot to hold each other to their screen-time limits.** Every minute you spend over your limit on TikTok, YouTube, Valorant, or League costs you a "tariff," paid automatically on-chain to the rest of your group.
+**Friends put SOL into a shared pot to hold each other to their screen-time limits.** Every minute you spend over your limit on TikTok, YouTube, Valorant, or League costs you a "tariff" that goes into the group's on-chain pot, and whoever has the least screen time at the end wins it.
 
 Built at sunhacks 9.0 (Nov 14–15, 2026). Runs on Windows laptops and Solana **devnet**.
 
@@ -8,8 +8,8 @@ Built at sunhacks 9.0 (Nov 14–15, 2026). Runs on Windows laptops and Solana **
 
 1. Connect Phantom on the dashboard, create or join a group, and stake devnet SOL into the group's on-chain vault.
 2. Run the tracker on your laptop. It watches which app or browser tab is in front and reports time on blocked apps.
-3. Go over your allowance and the backend calls the Solana program's `slash` instruction, which pays the tariff from your stake to the other members' wallets.
-4. At the end of the period, everyone withdraws whatever is left of their stake.
+3. Go over your allowance and the backend calls the Solana program's `slash` instruction, which moves the tariff from your stake into the group's penalty pool (it stays in the on-chain vault).
+4. When the period ends, the backend calls `settle`: the member(s) with the least blocked screen time split the pool. Everyone then withdraws their unspent stake plus any winnings. If the backend never settles, everyone can take back their full deposit.
 
 ```
 tracker (Windows) ──▶ backend (Node + MongoDB Atlas) ──▶ Anchor program (devnet vault)
