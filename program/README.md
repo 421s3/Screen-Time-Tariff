@@ -1,6 +1,13 @@
 # program/ — Screen Time Tariff Anchor program (Dev 2)
 
-Winner-takes-pool vault on Solana devnet. See `programs/screen_time_tariff/src/lib.rs` (top-of-file comment = trust model).
+Winner-takes-pool vault for Solana devnet. See `programs/screen_time_tariff/src/lib.rs` (top-of-file comment = trust model).
+
+## Status
+
+- **Program ID:** `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi` (in `declare_id!`, `Anchor.toml`, and the IDL).
+- **NOT deployed to devnet yet.** The ID is reserved by the program keypair; nothing is live at that address until the first `anchor deploy`.
+- **IDL for other devs:** [`idl/screen_time_tariff.json`](idl/screen_time_tariff.json), TypeScript types: [`idl/screen_time_tariff.ts`](idl/screen_time_tariff.ts). Regenerate after any program change (see below).
+- **Tests:** 14 passing on a local validator.
 
 ## Toolchain (WSL)
 
@@ -16,7 +23,7 @@ On Ubuntu 22.04 the prebuilt Anchor binary needs a newer glibc. Install it with 
 
 ## Spec
 
-Accounts, seeds, and instructions: [`../docs/contract.md`](../docs/contract.md) section 6. **As soon as you deploy, put the program ID there** and share the IDL with Devs 1 and 4.
+Accounts, seeds, instructions, errors, and backend rules: [`../docs/contract.md`](../docs/contract.md) section 6.
 
 ## Seeds
 | Account | Seeds |
@@ -31,24 +38,48 @@ Accounts, seeds, and instructions: [`../docs/contract.md`](../docs/contract.md) 
 | `create_group(group_id, oracle, allowance_minutes, tariff_lamports_per_min, period_end, grace_secs)` | admin | any | creates Group, pre-funds vault rent |
 | `join_and_stake(amount)` | member | before `period_end` | SOL -> vault, creates Member |
 | `slash(total_minutes_over: u32)` | oracle | until settled | **cumulative** minutes; charges only the delta; moves member balance -> `penalty_pool` (funds stay in vault); capped at balance |
-| `settle()` + remaining accounts = winner `Member` PDAs, **sorted by ascending pubkey** | oracle | after `period_end`, once | pool split equally among winners, remainder to lowest pubkey |
+| `settle()` + remaining accounts = winner `Member` PDAs, **sorted by ascending pubkey** | oracle | once, `period_end <= now < period_end + grace_secs` | pool split equally among winners, remainder to lowest pubkey; after the window: `GraceOver` |
 | `withdraw()` | member | after settle | pays `member.balance` (unspent stake + prize) |
 | `emergency_refund()` | member | unsettled and `now >= period_end + grace_secs` | returns original deposit |
+
+`grace_secs` must be > 0. It is the settle window: the backend has to settle before `period_end + grace_secs`, and only after that can members refund. The windows never overlap, because a refund returns the full deposit (including slashed lamports already in the pool). Demo value: `600`.
+
+Winner rule (decided by the team, enforced by the backend): lowest raw blocked screen time for the period; exact ties split the pool.
 
 Units: lamports, and unix **seconds** on-chain (the backend contract uses ms off-chain, so convert). Events: `Joined`, `Slashed`, `Settled`, `Withdrawn`.
 
 ## Trust model
 Usage is measured off-chain; the oracle supplies minutes-over and the winner list. The program only lets the oracle move stake into the pool (capped per member) and award the pool to group members. It can never pay an arbitrary address.
 
-## Deployed
+## Deployed (devnet)
 
-- Program ID (devnet): _TODO_
-- IDL: `target/idl/screen_time_tariff.json` (types: `target/types/screen_time_tariff.ts`)
+- Program ID: `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi`, **not deployed yet**.
+- Transactions: _none yet; Explorer links (`?cluster=devnet`) go here after the first devnet run._
 
-## Build / test / deploy (WSL)
+## Build
+
 ```
-anchor build && anchor keys sync && anchor build
-anchor test          # devnet; provider wallet needs ~1 SOL
+cd program
+anchor build
 ```
 
-Never commit keypair files. `keys/` and `*keypair*.json` are gitignored.
+The program keypair `target/deploy/screen_time_tariff-keypair.json` owns the program ID. It is gitignored. **Don't run `anchor clean` or delete `target/`** without a backup of that file, or the ID is lost.
+
+After any change to `lib.rs`, refresh the published IDL:
+```
+cp target/idl/screen_time_tariff.json target/types/screen_time_tariff.ts idl/
+```
+
+Dependencies are pinned in `Cargo.lock` for the Solana 2.1 toolchain (Rust 1.79 inside `cargo build-sbf`). Don't run `cargo update` without rebuilding and re-running the tests.
+
+## Test (local validator, no devnet SOL needed)
+
+Use Node 22 (mocha 9 fails on Node 26):
+```
+nvm use 22
+yarn install
+PERIOD_SECS=8 anchor test --provider.cluster localnet
+```
+`PERIOD_SECS` is the test group's period length (default 30). The suite waits for `period_end` and for the refund grace period, so a full run takes about a minute at 8.
+
+Never commit keypair files. `keys/`, `id.json`, and `*keypair*.json` are gitignored.
