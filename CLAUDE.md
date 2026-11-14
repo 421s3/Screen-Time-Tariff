@@ -57,7 +57,7 @@ This is what qualifies us for Best Use of Solana, and it's the riskiest part. St
 - **Instructions**
   - `create_group(rules, oracle)`
   - `join_and_stake(amount)`: signed by the user; moves their SOL into the vault.
-  - `slash(member, minutes_over)`: **only the oracle key can call it.** Moves the tariff from that member's stake to the other members, capped at what they have left.
+  - `slash(new_total_slashed)`: **only the oracle key can call it.** Takes the member's new running total in lamports (not the amount for this charge), pays the difference from their stake to the other members, and is capped at what they have left. Resending the same total is rejected, so retries can't charge twice. Details in `docs/contract.md` section 6.
   - `withdraw()`: after the period ends, a member takes back their remaining stake.
 - **Why it's trustworthy:** the backend can trigger penalties but can only send funds to other group members. It can't keep or drain the money.
 
@@ -82,11 +82,11 @@ This is what qualifies us for Best Use of Solana, and it's the riskiest part. St
 
 #### 3. Backend (API + enforcer)
 
-Node or Python (not decided). Host on Vultr, AWS, Render, or Railway; ngrok from a laptop as a fallback.
+Node.js + TypeScript + Express (set up in `backend/`). Host on Vultr, AWS, Render, or Railway; ngrok from a laptop as a fallback. Exact endpoints and formats are in `docs/contract.md` section 4.
 
-- `POST /pair`: links a tracker to a wallet using the dashboard's pairing code.
-- `POST /usage`: tracker reports `{user, app, seconds}`; added to today's total.
-- **Enforcer loop** (every 30–60 s): for each member, (minutes over allowance − minutes already charged) → send a `slash` transaction for the difference. Needs the oracle keypair, which lives in `.env` and is never committed.
+- Pairing (`/pair/start`, `/pair/complete`): links a tracker to a wallet using the dashboard's pairing code.
+- `POST /usage`: the tracker reports usage batches; they're added to the period's total.
+- **Enforcer loop** (every 30–60 s): for each member, (minutes over allowance − minutes already charged) → send a `slash` transaction for the difference. Signed by the oracle keypair at `backend/keys/oracle.json` (gitignored, never committed).
 - **Missed check-ins:** if a tracker stops reporting during the period, that time counts as over the limit. This is the answer to "can't I just close the tracker?"
 - Read endpoints for the dashboard: group, members, today's usage, penalty feed.
 - **Gemini roasts:** one line per penalty, e.g. "Alice has paid 0.02 SOL in TikTok taxes. The algorithm thanks her."
@@ -173,10 +173,18 @@ With fewer than four people, merge the backend and tracker roles first.
 
 Mainnet and real money; a tamper-proof tracker (missed check-ins are the only safeguard); Mac and mobile; complex group features (invites, chat, per-person schedules); real login (the wallet is the identity).
 
+### Decided
+
+- **Backend:** Node.js + TypeScript (shares the Anchor TypeScript client with the dashboard).
+- **Payouts:** immediate redistribution to the other members; no winner settlement.
+- **Title matching:** whole-word, browsers only (follows `tracker/blocklist.py`; see `docs/contract.md` section 5).
+- **Database:** MongoDB Atlas free cluster, database `screen-time-tariff`. Ask Dev 4 for the connection string by DM.
+- **Oracle public key (devnet):** `E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy`. Funded. The private key stays with Dev 4 / the backend host.
+
 ### Still open
 
-1. **Backend language:** Node (shares types with the dashboard) or Python (matches the tracker)?
-2. **Who owns the Anchor program?** Whoever is most comfortable with Rust; start immediately.
+1. **Who owns the Anchor program?** Whoever is most comfortable with Rust; start immediately.
+2. **Program ID:** after Dev 2's first devnet deploy. Record it in `docs/contract.md` section 6 and the `.env.example` files.
 3. **Demo laptops:** pick two, install Phantom on both, fund them from the devnet faucet, and test TikTok tab titles in the browser you'll demo with.
 
 ## Hard deadline
