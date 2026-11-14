@@ -133,7 +133,18 @@ Keep a recorded backup video in case Wi-Fi or devnet goes down.
 
 Don't let the extras eat time from the core loop.
 
-### Build order and team split
+### Team roles (tentative)
+
+Each developer owns one folder. Agree on the interfaces in `docs/contract.md` (endpoint formats, program accounts/instructions/seeds, units: **lamports everywhere**, timestamps in ms) before splitting up.
+
+| Dev | Area | Folder | Owns | First deliverable |
+|---|---|---|---|---|
+| **1** | Frontend (React, TypeScript, Phantom) | `web/` | Wallet connection, create/join group, stake controls, usage bars, live penalty feed, Explorer links, tax-collector mascot | Working dashboard on mock data shaped exactly like the backend's `/state` response |
+| **2** | Smart contract (Rust, Anchor, devnet) | `program/` | Group/member accounts, PDA vault, deposits, slashing, withdrawals, deployment. **Publish the IDL and PDA seeds early** for Devs 1 and 4 | Tested devnet transaction that deposits into the vault and slashes a penalty. **Highest risk: start immediately** (install the toolchain in WSL) |
+| **3** | Windows tracker (Python, pywin32, psutil) + shipping | `tracker/` | Foreground-app tracking, blocklist matching, aggregation, pairing, usage reports. Also: **integration testing**, demo laptop setup, GoDaddy domain, README, Devpost page, demo video | Open YouTube/TikTok and see accurate usage records (printed locally first, then sent to the backend) |
+| **4** | Backend & database (Node/TS, MongoDB Atlas) | `backend/` | Pairing, auth, usage ingestion, collections, penalty worker, `/state` for the dashboard, Gemini roasts, coordinating with Dev 2 | API endpoints that accept usage reports, store them, and calculate penalties without sending transactions yet |
+
+### Build order
 
 Goal: get the full loop working early (tracker → backend → slash on-chain → dashboard updates).
 
@@ -200,7 +211,9 @@ The deck says there are more ("...and more!"). The full list is on Devpost.
 ## Repo conventions
 
 - **No AI attribution.** Don't add `Co-Authored-By: Claude`, "Generated with Claude Code", or any similar lines to commits, PRs, code comments, or docs. Commits should be authored only by the teammate making them.
-- **Don't push directly to `main`.** The team works off a shared working branch; commit and push there. Change `main` only through a merge or PR.
-- Several people commit to the same branch: run `git pull --rebase` before pushing, and never force-push a shared branch.
+- **One branch per person, named `sh-<name>`** (e.g. `sh-brandon`, `sh-justin`). Commit and push only to your own branch.
+- **Don't push directly to `main`.** Get your work into `main` through small, frequent PRs from your branch. Merge early and often (every working piece), not one giant PR at the end.
+- **Stay in your own folder** (see Team roles). That keeps PRs from conflicting. If you need a change in someone else's folder, or in `docs/contract.md`, tell them first.
+- Keep your branch current: `git pull --rebase origin main` before you open a PR. Never force-push `main`, and don't force-push a branch someone else is also using.
 - Never commit secrets (API keys, `.env`). Use a `.env.example` with placeholder values instead.
 - Keep the README up to date with setup/run steps so any teammate (or judge) can run the project.
