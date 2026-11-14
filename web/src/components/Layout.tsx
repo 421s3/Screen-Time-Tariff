@@ -4,24 +4,31 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { restartDemo } from '../api/mockApi'
 import { DEMO_GROUP_ID, USE_MOCK } from '../config'
+import { useCurrentGroupId } from '../lib/currentGroup'
 import { shortAddr } from '../lib/format'
 import { Mascot } from './Mascot'
 import { WalletBalance } from './WalletBalance'
 
-const links = [
+const baseLinks = [
   { to: '/', label: 'Home', end: true },
   { to: '/create', label: 'Create' },
   { to: '/join', label: 'Join' },
-  { to: `/group/${DEMO_GROUP_ID}/stake`, label: 'Stake' },
-  { to: `/group/${DEMO_GROUP_ID}/pair`, label: 'Pair tracker' },
-  { to: `/group/${DEMO_GROUP_ID}`, label: 'Dashboard', end: true },
-  { to: `/group/${DEMO_GROUP_ID}/results`, label: 'Results' },
+]
+
+// Group pages need a real group id; until the user creates or joins one, they're hidden.
+const groupLinks = (groupId: string) => [
+  { to: `/group/${groupId}/stake`, label: 'Stake' },
+  { to: `/group/${groupId}/pair`, label: 'Pair tracker' },
+  { to: `/group/${groupId}`, label: 'Dashboard', end: true },
+  { to: `/group/${groupId}/results`, label: 'Results' },
 ]
 
 export function Layout() {
   const { publicKey } = useWallet()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const groupId = useCurrentGroupId()
+  const links = groupId ? [...baseLinks, ...groupLinks(groupId)] : baseLinks
   return (
     <div className="mx-auto min-h-screen max-w-6xl px-4 pb-16">
       <header className="flex flex-wrap items-center justify-between gap-3 py-4">

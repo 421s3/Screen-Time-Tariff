@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { DEMO_GROUP_ID, USE_MOCK } from '../config'
+import { USE_MOCK } from '../config'
+import { useCurrentGroupId } from '../lib/currentGroup'
 import { Mascot } from '../components/Mascot'
 import { Card, Disconnected, btnGhost, btnPrimary } from '../components/ui'
 
 export function Landing() {
   const { connected } = useWallet()
+  const groupId = useCurrentGroupId()
   return (
     <div className="grid gap-6 md:grid-cols-[1.4fr_1fr]">
       <Card className="flex flex-col justify-center gap-4 p-8">
@@ -47,9 +49,11 @@ export function Landing() {
             <Link className={btnGhost} to="/join">
               Join with a code
             </Link>
-            <Link className={btnGhost} to={`/group/${DEMO_GROUP_ID}`}>
-              Open the demo dashboard
-            </Link>
+            {groupId && (
+              <Link className={btnGhost} to={`/group/${groupId}`}>
+                {USE_MOCK ? 'Open the demo dashboard' : 'Open my group dashboard'}
+              </Link>
+            )}
           </Card>
         ) : (
           <Disconnected text="Connect Phantom on devnet to create or join a group." />

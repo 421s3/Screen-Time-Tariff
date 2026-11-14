@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { toast } from 'sonner'
 import { useGroupState } from '../api/hooks'
+import { ApiError } from '../api/base'
+import { forgetGroup } from '../lib/currentGroup'
 import type { GroupState, Member, Penalty } from '../types'
 import { fmtCountdown, fmtDuration, fmtSol, shortAddr } from '../lib/format'
 import { Mascot } from '../components/Mascot'
@@ -55,8 +57,25 @@ export function Dashboard() {
   }, [newestId])
 
   if (state.isLoading) return <Loading label="Loading group dashboard…" />
-  if (state.isError && !state.data)
+  if (state.isError && !state.data) {
+    if (state.error instanceof ApiError && state.error.code === 'GROUP_NOT_FOUND') {
+      if (wallet) forgetGroup(wallet, groupId)
+      return (
+        <div className="space-y-3">
+          <EmptyState title="Group not found" body="Create a group or join one with an invite code." />
+          <div className="flex gap-2">
+            <Link className={btnPrimary} to="/create">
+              Create a group
+            </Link>
+            <Link className={btnGhost} to="/join">
+              Join with a code
+            </Link>
+          </div>
+        </div>
+      )
+    }
     return <ErrorBox message={(state.error as Error).message} onRetry={() => state.refetch()} />
+  }
 
   const data = state.data!
   const { group, members, leaderboard, penalties, totals } = data
