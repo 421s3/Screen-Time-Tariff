@@ -118,32 +118,40 @@ export function WalletGate({
   return <>{children}</>
 }
 
-/** Screen time relative to the group's highest total (shortest bar = currently winning). */
-export function TimeBar({
-  seconds,
-  maxSeconds,
-  leading,
+/** Blocked time vs the group's allowance. Full and red = being charged into the pool. */
+export function UsageBar({
+  usedMinutes,
+  allowanceMinutes,
 }: {
-  seconds: number
-  maxSeconds: number
-  leading: boolean
+  usedMinutes: number
+  allowanceMinutes: number
 }) {
-  const pct = maxSeconds > 0 ? Math.min(100, (seconds / maxSeconds) * 100) : 0
+  const limit = Math.max(1, allowanceMinutes)
+  const pct = Math.min(100, (usedMinutes / limit) * 100)
+  const over = usedMinutes > allowanceMinutes
   return (
-    <div
-      className="h-2.5 overflow-hidden rounded-full bg-white/10"
-      role="meter"
-      aria-label="Screen time relative to the group's highest"
-      aria-valuemin={0}
-      aria-valuemax={maxSeconds}
-      aria-valuenow={seconds}
-    >
+    <div>
+      <div className="flex justify-between text-xs text-white/60">
+        <span>
+          {usedMinutes} min / {allowanceMinutes} min allowed
+        </span>
+        {over && <span className="text-red-300">{usedMinutes - allowanceMinutes} over</span>}
+      </div>
       <div
-        className={`h-full rounded-full transition-all duration-700 ${
-          leading ? 'bg-emerald-400' : pct > 80 ? 'bg-red-400' : 'bg-amber-300'
-        }`}
-        style={{ width: `${pct}%` }}
-      />
+        className="mt-1 h-2.5 overflow-hidden rounded-full bg-white/10"
+        role="progressbar"
+        aria-label="Blocked time used of the allowance"
+        aria-valuemin={0}
+        aria-valuemax={allowanceMinutes}
+        aria-valuenow={usedMinutes}
+      >
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            over ? 'bg-red-400' : pct > 75 ? 'bg-amber-300' : 'bg-emerald-400'
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   )
 }

@@ -2,6 +2,10 @@ import { API_URL } from '../config'
 import type { GroupState } from '../types'
 import { ApiError, type Api } from './base'
 
+// Endpoints and bodies follow docs/contract.md v0.3 section 4 and backend/src/routes.
+// Works against a backend in CHAIN_MODE=off or mock today. CHAIN_MODE=devnet also needs the
+// dashboard to send create_group / join_and_stake / withdraw with Phantom first (CP3).
+
 async function request<T>(
   path: string,
   wallet: string | null | undefined,
@@ -35,16 +39,45 @@ async function request<T>(
   return (await res.json()) as T
 }
 
-const notYet = (what: string) =>
-  new ApiError('NOT_IMPLEMENTED', `${what} is wired up at CP2/CP3 (needs backend + program).`)
+const post = <T>(path: string, wallet: string, body: unknown) =>
+  request<T>(path, wallet, { method: 'POST', body: JSON.stringify(body) })
 
-// CP1: only /state is real. The rest arrive with CP2 (endpoints) and CP3 (Anchor + Phantom).
 export const realApi: Api = {
-  getState: (groupId, wallet) =>
-    request<GroupState>(`/groups/${groupId}/state`, wallet),
-  createGroup: () => Promise.reject(notYet('Creating a group')),
-  joinGroup: () => Promise.reject(notYet('Joining a group')),
-  recordStake: () => Promise.reject(notYet('Staking')),
-  startSession: () => Promise.reject(notYet('Starting the session')),
-  startPairing: () => Promise.reject(notYet('Pairing a tracker')),
+  getState: (groupId, wallet) => request<GroupState>(`/groups/${groupId}/state`, wallet),
+
+  createGroup: (input, wallet) => {
+    const periodStart = Date.now()
+    return post<{ groupId: string; joinCode: string }>('/groups', wallet, {
+      name: input.name,
+      displayName: input.displayName,
+      rules: {
+        allowanceMinutes: input.allowanceMinutes,
+        tariffLamportsPerMinute: input.tariffLamportsPerMinute,
+        periodStart,
+        periodEnd: periodStart + input.periodMs,
+        demoMode: input.demoMode,
+      },
+      blocklist: input.blocklist,
+      // groupPda / groupSeed / createSignature: required in devnet mode, sent at CP3.
+    })
+  },
+
+  joinGroup: (joinCode, displayName, wallet) =>
+    post<{ groupId: string }>('/groups/join', wallet, { joinCode, displayName }),
+
+  recordStake: async (groupId, lamports, wallet) => {
+    // Off/mock mode: the backend records (mock: stakes on-chain for us). Devnet mode needs a
+    // real join_and_stake signature from Phantom first (CP3); until then it returns STAKE_NOT_FOUND.
+    const signature = `dashboard-${Date.now()}`
+    await post(`/groups/${groupId}/stakes`, wallet, { lamports, signature })
+    return { ok: true, signature: null }
+  },
+
+  withdraw: () =>
+    Promise.reject(
+      new ApiError('NOT_IMPLEMENTED', 'Withdraw is a Phantom transaction; it arrives at CP3.'),
+    ),
+
+  startPairing: (groupId, wallet) =>
+    post<{ code: string; expiresAt: number }>('/pair/start', wallet, { groupId }),
 }

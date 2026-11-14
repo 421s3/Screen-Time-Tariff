@@ -1,101 +1,124 @@
-// Contract with the backend for GET /groups/:id/state.
-// MECHANIC: everyone pays the same entry stake; lowest total screen time at the end
-// of the session takes the whole pot (ties split it). See web/MECHANIC_CHANGE.md for
-// the diff against docs/contract.md. Amounts are lamports, times are unix ms.
+// Contract with the backend: docs/contract.md v0.3 (winner-takes-pool), section 4,
+// GET /groups/:id/state. Matches backend/src/services/state.ts. If a type here changes,
+// tell the backend devs. Amounts are lamports, times are unix ms.
+//
+// Model: each member stakes; minutes over the allowance are charged at the tariff and moved
+// into the group's penalty pool; after the period, the staked member(s) with the lowest
+// blocked time win the whole pool; then everyone withdraws remaining stake + prize.
 
 export type Blocklist = {
   processes: { match: string; label: string }[]
   titles: { match: string; label: string }[]
+  browsers?: string[]
+  // Tracker extension (Dev 3): count any Steam-launched game, reported by its folder name.
+  // NOT in contract v0.3 yet: the backend currently drops this key (ask Dev 4).
+  steamGames?: boolean
 }
-
-export type SessionPreset = 'demo' | 'day' | 'week' | 'month'
 
 export type Rules = {
-  stakeLamports: number // fixed entry stake, same for everyone
-  sessionPreset: SessionPreset
-  sessionMs: number // length of the session once started
-  maxMembers: number // 8
+  allowanceMinutes: number
+  tariffLamportsPerMinute: number
 }
 
-export type GroupStatus = 'upcoming' | 'active' | 'ended' | 'settled'
+export type ChainMode = 'off' | 'mock' | 'devnet'
+
+export type SettlementStatus = 'pending' | 'sent' | 'confirmed' | 'failed' | 'skipped'
+
+export type Settlement = {
+  status: SettlementStatus // skipped = nobody staked
+  poolLamports: number
+  winners: { wallet: string; displayName: string; prizeLamports: number }[]
+  signature: string | null
+  explorerUrl: string | null // devnet only
+  settledAt: number | null
+}
 
 export type Group = {
   groupId: string
   name: string
   joinCode: string
-  groupPda: string
-  programId: string
-  creatorWallet: string
-  status: GroupStatus
-  periodStart: number | null // null until the creator presses Start
-  periodEnd: number | null
+  groupPda: string | null // null only in chainMode "off"
+  programId: string | null
+  chainMode: ChainMode
+  status: 'upcoming' | 'active' | 'ended'
+  periodStart: number
+  periodEnd: number
   demoMode: boolean
   rules: Rules
   blocklist: Blocklist
+  settlement: Settlement | null // null until the period ends and the backend settles
 }
 
 export type Member = {
   wallet: string
   displayName: string
-  joinedAt: number
-  staked: boolean
-  stakedLamports: number
-  rank: number | null // 1 = least screen time; ties share a rank; null = not in the race
+  staked: boolean // has an on-chain Member account (can be charged and can win)
+  stakedLamports: number // on-chain deposit
+  slashedLamports: number // moved into the pool
+  receivedLamports: number // prize won at settlement (0 before)
+  remainingLamports: number // withdrawable: staked - slashed + received
+  withdrawn: boolean
   usage: {
-    totalSeconds: number // blockedSeconds + offlineSeconds, this is what's ranked
     blockedSeconds: number
-    offlineSeconds: number // missed tracker check-ins count as screen time
+    blockedMinutes: number
+    minutesOver: number
+    minutesCharged: number
+    offlineMinutes: number
     byApp: { app: string; seconds: number }[]
   }
+  // app is the label the tracker reports, e.g. "Valorant", "TikTok", or a Steam game's
+  // folder name like "Team Fortress 2". null = not on a blocked app.
   current: { app: string; matchType: 'process' | 'title'; since: number } | null
-  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null }
+  // `idle` is NOT in contract v0.3 yet: the tracker sends it on every /usage batch and the
+  // backend stores it, but /state doesn't return it. Treated as false when missing.
+  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null; idle?: boolean }
 }
 
-export type RankEventKind = 'session_started' | 'took_lead' | 'passed' | 'session_ended'
-
-export type RankEvent = {
-  eventId: string
-  kind: RankEventKind
-  wallet: string | null // who moved up (null for session events)
-  displayName: string | null
-  otherWallet: string | null // who they passed
-  otherDisplayName: string | null
-  newRank: number | null
-  roast: string | null // Gemini, optional
-  createdAt: number
+export type LeaderboardEntry = {
+  wallet: string
+  displayName: string
+  blockedMinutes: number
+  rank: number
+  leading: boolean // would win if the period ended now (after settlement: the actual winners)
 }
 
-export type SessionResult = {
-  winners: { wallet: string; displayName: string; payoutLamports: number }[]
-  potLamports: number
-  signature: string | null // settle transaction
+export type Penalty = {
+  penaltyId: string
+  wallet: string // who was charged (the SOL goes into the group's pool)
+  displayName: string
+  app: string // "Tracker offline" for missed check-ins
+  minutes: number
+  lamports: number // estimate while pending; the amount actually charged once confirmed
+  status: 'pending' | 'sent' | 'confirmed' | 'failed'
+  signature: string | null
   explorerUrl: string | null
-  settledAt: number | null
+  roast: string | null
+  createdAt: number
 }
 
 export type GroupState = {
   serverTime: number
   group: Group
-  members: Member[] // sorted by rank, then unstaked members
-  events: RankEvent[] // newest first, max 50
-  totals: { potLamports: number; stakedMembers: number }
-  result: SessionResult | null // set once the session is settled
+  members: Member[]
+  leaderboard: LeaderboardEntry[] // staked first, then lowest blocked time
+  penalties: Penalty[] // newest first, max 50
+  totals: { stakedLamports: number; penaltyPoolLamports: number }
 }
 
+/** What the Create Group form collects; realApi turns it into the POST /groups body. */
 export type CreateGroupInput = {
   name: string
   displayName: string
-  stakeLamports: number
-  sessionPreset: SessionPreset
+  allowanceMinutes: number
+  tariffLamportsPerMinute: number
+  periodMs: number
+  demoMode: boolean
   blocklist: Blocklist
 }
 
-export const SESSION_PRESETS: { id: SessionPreset; label: string; ms: number }[] = [
-  { id: 'demo', label: 'Demo (90 s)', ms: 90_000 },
-  { id: 'day', label: '1 day', ms: 24 * 60 * 60_000 },
-  { id: 'week', label: '1 week', ms: 7 * 24 * 60 * 60_000 },
-  { id: 'month', label: '1 month (30 days)', ms: 30 * 24 * 60 * 60_000 },
+export const PERIOD_PRESETS: { id: string; label: string; ms: number; demo: boolean }[] = [
+  { id: 'demo', label: 'Demo (3 min)', ms: 3 * 60_000, demo: true },
+  { id: 'day', label: '1 day', ms: 24 * 60 * 60_000, demo: false },
+  { id: 'week', label: '1 week', ms: 7 * 24 * 60 * 60_000, demo: false },
+  { id: 'month', label: '1 month (30 days)', ms: 30 * 24 * 60 * 60_000, demo: false },
 ]
-
-export const MAX_MEMBERS = 8
-export const MIN_MEMBERS_TO_START = 2
