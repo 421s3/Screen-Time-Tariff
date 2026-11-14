@@ -59,7 +59,7 @@ Landing / Connect Wallet → Create Group → Join Group → Stake → Pair Trac
 
 ## Status (update as you go)
 
-- [ ] CP1
+- [ ] CP1: built and verified on mock data (all pages, states, DEMO MODE badge, live penalty popup, phone width). Remaining: confirm Phantom connect + devnet balance in a browser with Phantom, then tick.
 - [ ] CP2
 - [ ] CP3
 - [ ] CP4
