@@ -157,7 +157,48 @@ try {
   assert.equal(r.body.error.code, "PAIR_CODE_INVALID");
   r = await call("GET", "/tracker/config", { token: aliceToken });
   assert.ok(r.body.blocklist.titles.some((t: { label: string }) => t.label === "TikTok"));
-  ok("pairing and /tracker/config");
+  assert.equal(r.body.blocklist.steamGames, true, "default blocklist counts Steam-launched games");
+  assert.ok(!r.body.blocklist.processes.some((p: { match: string }) => p.match === "steam.exe"),
+    "the Steam client isn't in the default list");
+  ok("pairing and /tracker/config (default: steamGames true, no steam.exe)");
+
+  // steamGames survives group creation -> MongoDB -> /state and /tracker/config; steam.exe still selectable
+  {
+    const owner = newWallet();
+    let seed = 0;
+    const make = (blocklist: unknown) =>
+      call("POST", "/groups", {
+        wallet: owner,
+        body: { name: "steam", displayName: "Owner", rules, blocklist, groupSeed: String(++seed) }, // distinct mock PDAs
+      });
+    const configFor = async (groupId: string) => {
+      const code = (await call("POST", "/pair/start", { wallet: owner, body: { groupId } })).body.code;
+      const token = (await call("POST", "/pair/complete", { body: { code } })).body.trackerToken;
+      return (await call("GET", "/tracker/config", { token })).body.blocklist;
+    };
+
+    let g = await make({ processes: [{ match: "steam.exe", label: "Steam" }], titles: [], steamGames: false });
+    assert.equal(g.status, 201, JSON.stringify(g.body));
+    let bl = await configFor(g.body.groupId);
+    assert.equal(bl.steamGames, false);
+    assert.deepEqual(bl.processes, [{ match: "steam.exe", label: "Steam" }], "explicit steam.exe is kept");
+    const stored = await db.groups().findOne({ _id: new (await import("mongodb")).ObjectId(g.body.groupId) });
+    assert.equal(stored?.blocklist.steamGames, false, "stored in MongoDB");
+    assert.equal((await state(g.body.groupId)).group.blocklist.steamGames, false, "in /state");
+
+    g = await make({ processes: ["VALORANT-Win64-Shipping.exe"], steamGames: true });
+    bl = await configFor(g.body.groupId);
+    assert.equal(bl.steamGames, true);
+
+    g = await make({ processes: ["VALORANT-Win64-Shipping.exe"] });
+    bl = await configFor(g.body.groupId);
+    assert.equal("steamGames" in bl, false, "absent stays absent (tracker treats it as off)");
+
+    g = await make({ processes: [], steamGames: "yes" });
+    assert.equal(g.status, 400);
+    assert.equal(g.body.error.code, "VALIDATION_ERROR");
+  }
+  ok("blocklist.steamGames kept through create -> MongoDB -> /state and /tracker/config; must be boolean");
 
   await report(aliceToken, "TikTok", "title", 150);
   await report(bobToken, "Steam", "process", 30);

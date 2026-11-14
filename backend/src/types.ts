@@ -14,6 +14,9 @@ export interface Blocklist {
   processes: BlockEntry[];
   titles: BlockEntry[];
   browsers?: string[];
+  // Tracker: count any game installed under a Steam library's steamapps\common (labelled by the
+  // game folder). The Steam client itself (steam.exe) only counts if it's listed in processes.
+  steamGames?: boolean;
 }
 
 export interface Rules {
