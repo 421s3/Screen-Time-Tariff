@@ -1,0 +1,259 @@
+{
+  "serverTime": 1794729600000,
+  "group": {
+    "groupId": "6734f0c2a1b2c3d4e5f60718",
+    "name": "Finals Week Survivors",
+    "joinCode": "TAX42Z",
+    "groupPda": "CMx7Jm8hHqbxyKDXMxbeWikjyVrJnUn1LrEnB2bPqxXm",
+    "programId": "6sCrwiknWJUMwJ8By4a9m6LPdSgjxr7YYd6RMexXuF8U",
+    "status": "active",
+    "periodStart": 1794729000000,
+    "periodEnd": 1794729900000,
+    "demoMode": true,
+    "rules": {
+      "allowanceMinutes": 1,
+      "tariffLamportsPerMinute": 10000000
+    },
+    "blocklist": {
+      "processes": [
+        {
+          "match": "VALORANT-Win64-Shipping.exe",
+          "label": "Valorant"
+        },
+        {
+          "match": "League of Legends.exe",
+          "label": "League of Legends"
+        },
+        {
+          "match": "steam.exe",
+          "label": "Steam"
+        },
+        {
+          "match": "Discord.exe",
+          "label": "Discord"
+        }
+      ],
+      "titles": [
+        {
+          "match": "TikTok",
+          "label": "TikTok"
+        },
+        {
+          "match": "YouTube",
+          "label": "YouTube"
+        },
+        {
+          "match": "Reddit",
+          "label": "Reddit"
+        },
+        {
+          "match": "Instagram",
+          "label": "Instagram"
+        },
+        {
+          "match": "Twitch",
+          "label": "Twitch"
+        }
+      ]
+    }
+  },
+  "members": [
+    {
+      "wallet": "H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx",
+      "displayName": "Alice",
+      "stakedLamports": 500000000,
+      "slashedLamports": 20000000,
+      "receivedLamports": 0,
+      "remainingLamports": 480000000,
+      "withdrawn": false,
+      "usage": {
+        "blockedSeconds": 262,
+        "blockedMinutes": 4,
+        "minutesOver": 3,
+        "minutesCharged": 2,
+        "offlineMinutes": 0,
+        "byApp": [
+          {
+            "app": "TikTok",
+            "seconds": 214
+          },
+          {
+            "app": "YouTube",
+            "seconds": 48
+          }
+        ]
+      },
+      "current": {
+        "app": "TikTok",
+        "matchType": "title",
+        "since": 1794729420000
+      },
+      "tracker": {
+        "paired": true,
+        "online": true,
+        "lastSeenAt": 1794729590000
+      }
+    },
+    {
+      "wallet": "rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm",
+      "displayName": "Bob",
+      "stakedLamports": 500000000,
+      "slashedLamports": 0,
+      "receivedLamports": 10000000,
+      "remainingLamports": 500000000,
+      "withdrawn": false,
+      "usage": {
+        "blockedSeconds": 31,
+        "blockedMinutes": 0,
+        "minutesOver": 0,
+        "minutesCharged": 0,
+        "offlineMinutes": 0,
+        "byApp": [
+          {
+            "app": "Steam",
+            "seconds": 31
+          }
+        ]
+      },
+      "current": {
+        "app": "Steam",
+        "matchType": "process",
+        "since": 1794729569000
+      },
+      "tracker": {
+        "paired": true,
+        "online": true,
+        "lastSeenAt": 1794729585000
+      }
+    },
+    {
+      "wallet": "HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos",
+      "displayName": "Carol",
+      "stakedLamports": 500000000,
+      "slashedLamports": 0,
+      "receivedLamports": 10000000,
+      "remainingLamports": 500000000,
+      "withdrawn": false,
+      "usage": {
+        "blockedSeconds": 95,
+        "blockedMinutes": 1,
+        "minutesOver": 0,
+        "minutesCharged": 0,
+        "offlineMinutes": 0,
+        "byApp": [
+          {
+            "app": "Reddit",
+            "seconds": 95
+          }
+        ]
+      },
+      "current": null,
+      "tracker": {
+        "paired": true,
+        "online": false,
+        "lastSeenAt": 1794729410000
+      }
+    }
+  ],
+  "leaderboard": [
+    {
+      "wallet": "rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm",
+      "displayName": "Bob",
+      "blockedMinutes": 0,
+      "rank": 1
+    },
+    {
+      "wallet": "HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos",
+      "displayName": "Carol",
+      "blockedMinutes": 1,
+      "rank": 2
+    },
+    {
+      "wallet": "H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx",
+      "displayName": "Alice",
+      "blockedMinutes": 4,
+      "rank": 3
+    }
+  ],
+  "penalties": [
+    {
+      "penaltyId": "6734f3a9a1b2c3d4e5f60803",
+      "wallet": "H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx",
+      "displayName": "Alice",
+      "app": "TikTok",
+      "minutes": 1,
+      "lamports": 10000000,
+      "recipients": [
+        {
+          "wallet": "rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm",
+          "displayName": "Bob",
+          "lamports": 5000000
+        },
+        {
+          "wallet": "HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos",
+          "displayName": "Carol",
+          "lamports": 5000000
+        }
+      ],
+      "status": "pending",
+      "signature": null,
+      "explorerUrl": null,
+      "roast": null,
+      "createdAt": 1794729595000
+    },
+    {
+      "penaltyId": "6734f36da1b2c3d4e5f60802",
+      "wallet": "H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx",
+      "displayName": "Alice",
+      "app": "TikTok",
+      "minutes": 1,
+      "lamports": 10000000,
+      "recipients": [
+        {
+          "wallet": "rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm",
+          "displayName": "Bob",
+          "lamports": 5000000
+        },
+        {
+          "wallet": "HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos",
+          "displayName": "Carol",
+          "lamports": 5000000
+        }
+      ],
+      "status": "confirmed",
+      "signature": "2FpbDWDF7aNYov82Vs4dZJyCNsTt8x5HwMTybnoYF7q6sHPvFiqGRyL13DYyAC33GCnderMuSndEcbVx6h4VzMf6",
+      "explorerUrl": "https://explorer.solana.com/tx/2FpbDWDF7aNYov82Vs4dZJyCNsTt8x5HwMTybnoYF7q6sHPvFiqGRyL13DYyAC33GCnderMuSndEcbVx6h4VzMf6?cluster=devnet",
+      "roast": "Alice has now paid 0.02 SOL in TikTok taxes. The algorithm thanks her for her service.",
+      "createdAt": 1794729535000
+    },
+    {
+      "penaltyId": "6734f331a1b2c3d4e5f60801",
+      "wallet": "H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx",
+      "displayName": "Alice",
+      "app": "YouTube",
+      "minutes": 1,
+      "lamports": 10000000,
+      "recipients": [
+        {
+          "wallet": "rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm",
+          "displayName": "Bob",
+          "lamports": 5000000
+        },
+        {
+          "wallet": "HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos",
+          "displayName": "Carol",
+          "lamports": 5000000
+        }
+      ],
+      "status": "confirmed",
+      "signature": "aRawcHKZs4ZFssGTq2yAa4HsMawXioMzRK5fnXV8mQ88NWtE7d68mubgEAi2KxPY2zsiy7kdpRs4aS4nu9d9K8f",
+      "explorerUrl": "https://explorer.solana.com/tx/aRawcHKZs4ZFssGTq2yAa4HsMawXioMzRK5fnXV8mQ88NWtE7d68mubgEAi2KxPY2zsiy7kdpRs4aS4nu9d9K8f?cluster=devnet",
+      "roast": "One more video, Alice said. 0.01 SOL ago.",
+      "createdAt": 1794729475000
+    }
+  ],
+  "totals": {
+    "stakedLamports": 1500000000,
+    "paidOutLamports": 20000000
+  }
+}

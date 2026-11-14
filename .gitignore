@@ -13,6 +13,26 @@ __pycache__/
 .venv/
 venv/
 
+# Solana / Anchor build output
+target/
+.anchor/
+test-ledger/
+
+# Solana keypairs (they look like ordinary JSON files, so be careful)
+keys/
+*keypair*.json
+id.json
+
+# Tracker local state
+tracker/.tracker_token.json
+tracker/queue/
+
+# PyInstaller
+*.spec
+
+# Logs
+*.log
+
 # Editor / OS
 .vscode/
 .idea/
