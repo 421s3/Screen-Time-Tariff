@@ -194,7 +194,6 @@ export function Dashboard() {
               <p className="text-sm text-white/80">
                 {popup.displayName} paid the {popup.app} tariff.
               </p>
-              {popup.roast && <p className="mt-1 text-xs italic text-violet-200">“{popup.roast}”</p>}
             </div>
           </motion.div>
         )}

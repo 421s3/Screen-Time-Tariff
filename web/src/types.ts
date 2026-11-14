@@ -1,4 +1,4 @@
-// Contract with the backend: docs/contract.md v0.3 (winner-takes-pool), section 4,
+// Contract with the backend: docs/contract.md v0.5 (winner-takes-pool, no roasts), section 4,
 // GET /groups/:id/state. Matches backend/src/services/state.ts. If a type here changes,
 // tell the backend devs. Amounts are lamports, times are unix ms.
 //
@@ -11,7 +11,7 @@ export type Blocklist = {
   titles: { match: string; label: string }[]
   browsers?: string[]
   // Tracker extension (Dev 3): count any Steam-launched game, reported by its folder name.
-  // NOT in contract v0.3 yet: the backend currently drops this key (ask Dev 4).
+  // NOT in the contract yet: the backend currently drops this key (ask Dev 4).
   steamGames?: boolean
 }
 
@@ -69,7 +69,7 @@ export type Member = {
   // app is the label the tracker reports, e.g. "Valorant", "TikTok", or a Steam game's
   // folder name like "Team Fortress 2". null = not on a blocked app.
   current: { app: string; matchType: 'process' | 'title'; since: number } | null
-  // `idle` is NOT in contract v0.3 yet: the tracker sends it on every /usage batch and the
+  // `idle` is NOT in the contract yet: the tracker sends it on every /usage batch and the
   // backend stores it, but /state doesn't return it. Treated as false when missing.
   tracker: { paired: boolean; online: boolean; lastSeenAt: number | null; idle?: boolean }
 }
@@ -92,7 +92,6 @@ export type Penalty = {
   status: 'pending' | 'sent' | 'confirmed' | 'failed'
   signature: string | null
   explorerUrl: string | null
-  roast: string | null
   createdAt: number
 }
 

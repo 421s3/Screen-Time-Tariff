@@ -12,7 +12,7 @@ import { Card, EmptyState, ErrorBox, Loading, btnGhost, btnPrimary } from '../co
 
 const CONFETTI = ['🎉', '✨', '◎', '🪙', '🎊']
 
-// Winner-takes-pool (docs/contract.md v0.3): after the period, the staked member(s) with the
+// Winner-takes-pool (docs/contract.md v0.5): after the period, the staked member(s) with the
 // lowest blocked time win the whole penalty pool; then everyone withdraws stake - slashed + prize.
 export function Results() {
   const { groupId = '' } = useParams()

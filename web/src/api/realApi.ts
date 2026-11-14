@@ -2,7 +2,7 @@ import { API_URL } from '../config'
 import type { GroupState } from '../types'
 import { ApiError, type Api } from './base'
 
-// Endpoints and bodies follow docs/contract.md v0.3 section 4 and backend/src/routes.
+// Endpoints and bodies follow docs/contract.md v0.5 section 4 and backend/src/routes.
 // Works against a backend in CHAIN_MODE=off or mock today. CHAIN_MODE=devnet also needs the
 // dashboard to send create_group / join_and_stake / withdraw with Phantom first (CP3).
 

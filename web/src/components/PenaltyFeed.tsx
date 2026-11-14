@@ -48,7 +48,6 @@ export function PenaltyFeed({ penalties }: { penalties: Penalty[] }) {
                     {p.status}
                   </span>
                 </div>
-                {p.roast && <p className="mt-2 text-sm italic text-violet-200">“{p.roast}”</p>}
                 <p className="mt-2 text-xs">
                   {link ? (
                     <a className="text-sky-300 underline" href={link} target="_blank" rel="noreferrer">

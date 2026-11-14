@@ -9,7 +9,7 @@ import type {
 } from '../types'
 import { ApiError, type Api } from './base'
 
-// Simulated winner-takes-pool race (docs/contract.md v0.3). Every demo period runs 90 s of
+// Simulated winner-takes-pool race (docs/contract.md v0.5). Every demo period runs 90 s of
 // real time, with screen time compressed so minutes add up fast:
 //  - minutes over the allowance are charged every 10 s (one penalty per member per tick),
 //    first "sent", then "confirmed" a few seconds later, and moved into the penalty pool;
@@ -114,13 +114,6 @@ const SCRIPT: Scripted[] = [
   },
 ]
 
-const ROASTS: ((name: string, app: string) => string)[] = [
-  (n, a) => `One more ${a} session, ${n} said. The pool says thanks.`,
-  (n, a) => `${n}'s ${a} habit is now a line item in the group budget.`,
-  (n, a) => `${n} paid the ${a} tax. Tariff Tom tips his hat.`,
-  (n) => `The tax collector would like a word with ${n}.`,
-]
-const OFFLINE_ROAST = (n: string) => `${n} closed the tracker. The tracker noticed.`
 
 type Extra = { wallet: string; displayName: string; stakeLamports: number }
 
@@ -185,7 +178,6 @@ function segmentAt(segments: Segment[], t: number): Segment | null {
 function penaltiesAt(list: Racer[], elapsedSec: number, now: number): Penalty[] {
   const { allowanceMinutes, tariffLamportsPerMinute } = session.rules
   const out: Penalty[] = []
-  let roastIdx = 0
   for (const r of list) {
     if (r.stakeLamports === 0) continue // can't charge a member who never staked
     let charged = 0
@@ -212,12 +204,6 @@ function penaltiesAt(list: Racer[], elapsedSec: number, now: number): Penalty[] 
         status: confirmed ? 'confirmed' : 'sent',
         signature: null, // mock: no real transaction
         explorerUrl: null,
-        roast:
-          app === OFFLINE_APP
-            ? OFFLINE_ROAST(r.displayName)
-            : minutes >= 3
-              ? ROASTS[roastIdx++ % ROASTS.length](r.displayName, app)
-              : null,
         createdAt,
       })
       charged = over
