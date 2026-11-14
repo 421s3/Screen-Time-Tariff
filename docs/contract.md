@@ -75,9 +75,10 @@ Public. Tells the dashboard which program and oracle to use.
 {
   "cluster": "devnet",
   "programId": "6sCrwiknWJUMwJ8By4a9m6LPdSgjxr7YYd6RMexXuF8U",
-  "oraclePubkey": "CvdZLhJ6xnD74pSL1iXhGGL32ezL8CvyBFX8THYw7CG7"
+  "oraclePubkey": "E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy"
 }
 ```
+`oraclePubkey` above is the real, funded devnet oracle. `programId` is still a placeholder until Dev 2 deploys.
 
 ### `POST /groups` (dashboard, `X-Wallet` = creator)
 Called **after** the creator's `create_group` transaction confirms.
@@ -271,6 +272,8 @@ Matching rules (these follow the tracker's implementation in `tracker/blocklist.
 
 Program name: `screen_time_tariff`. Program ID: **TBD after first deploy** (put it here and in every `.env.example`).
 
+Oracle (pass as `oracle` to `create_group`): `E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy` (devnet, funded, held by the backend).
+
 ### PDAs (seeds)
 | Account | Seeds |
 |---|---|
@@ -333,6 +336,7 @@ See each folder's `.env.example`. Never commit real values or keypair files.
 | `PROGRAM_ID` / `VITE_PROGRAM_ID` | backend, web | from section 6 |
 | `SOLANA_RPC_URL` / `VITE_SOLANA_RPC_URL` | backend, web | `https://api.devnet.solana.com` |
 | `MONGODB_URI` | backend | shared by DM |
+| `MONGODB_DB` | backend | `screen-time-tariff` (the default) |
 | `ORACLE_KEYPAIR_PATH` | backend | `./keys/oracle.json` (gitignored) |
 | `GEMINI_API_KEY` | backend | — |
 | `ENFORCE_OFFLINE` | backend | `false` in development |
