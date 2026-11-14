@@ -7,7 +7,8 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc",
     "make-oracle": "tsx scripts/make-oracle.ts",
-    "check-db": "tsx scripts/check-db.ts"
+    "check-db": "tsx scripts/check-db.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "type": "module",
   "dependencies": {

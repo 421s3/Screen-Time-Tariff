@@ -1,0 +1,162 @@
+// Builds GET /groups/:groupId/state. The shape must match docs/contract.md section 4
+// and docs/mock-state.json, because the dashboard is built against them.
+import type { ObjectId } from "mongodb";
+import { config } from "../config.js";
+import { groups, penalties, trackers } from "../db.js";
+import { ApiError } from "../errors.js";
+import type { Blocklist, MatchType, PenaltyStatus, Recipient } from "../types.js";
+import { explorerTxUrl } from "../util.js";
+import { usageByWalletApp } from "./usage.js";
+
+export interface MemberState {
+  wallet: string;
+  displayName: string;
+  stakedLamports: number;
+  slashedLamports: number;
+  receivedLamports: number;
+  remainingLamports: number;
+  withdrawn: boolean;
+  usage: {
+    blockedSeconds: number;
+    blockedMinutes: number;
+    minutesOver: number;
+    minutesCharged: number;
+    offlineMinutes: number;
+    byApp: { app: string; seconds: number }[];
+  };
+  current: { app: string; matchType: MatchType; since: number } | null;
+  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null };
+}
+
+export interface PenaltyState {
+  penaltyId: string;
+  wallet: string;
+  displayName: string;
+  app: string;
+  minutes: number;
+  lamports: number;
+  recipients: Recipient[];
+  status: PenaltyStatus;
+  signature: string | null;
+  explorerUrl: string | null;
+  roast: string | null;
+  createdAt: number;
+}
+
+export interface GroupState {
+  serverTime: number;
+  group: {
+    groupId: string;
+    name: string;
+    joinCode: string;
+    groupPda: string | null;
+    programId: string | null;
+    status: "upcoming" | "active" | "ended";
+    periodStart: number;
+    periodEnd: number;
+    demoMode: boolean;
+    rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
+    blocklist: Blocklist;
+  };
+  members: MemberState[];
+  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number }[];
+  penalties: PenaltyState[];
+  totals: { stakedLamports: number; paidOutLamports: number };
+}
+
+export async function buildGroupState(groupId: ObjectId, now = Date.now()): Promise<GroupState> {
+  const group = await groups().findOne({ _id: groupId });
+  if (!group) throw new ApiError(404, "GROUP_NOT_FOUND", "No group with that id");
+
+  const [usage, allPenalties, groupTrackers] = await Promise.all([
+    usageByWalletApp(group),
+    penalties().find({ groupId }).sort({ createdAt: -1 }).toArray(),
+    trackers().find({ groupId }).toArray(),
+  ]);
+  const confirmed = allPenalties.filter((p) => p.status === "confirmed");
+  const { allowanceMinutes, tariffLamportsPerMinute, periodStart, periodEnd, demoMode } = group.rules;
+
+  const members: MemberState[] = group.members.map((m) => {
+    const byApp = usage
+      .filter((u) => u.wallet === m.wallet)
+      .map((u) => ({ app: u.app, seconds: u.seconds }))
+      .sort((a, b) => b.seconds - a.seconds);
+    const blockedSeconds = byApp.reduce((sum, u) => sum + u.seconds, 0);
+    const blockedMinutes = Math.floor(blockedSeconds / 60);
+
+    const paid = confirmed.filter((p) => p.wallet === m.wallet);
+    const slashedLamports = paid.reduce((sum, p) => sum + p.lamports, 0);
+    const minutesCharged = paid.reduce((sum, p) => sum + p.minutes, 0);
+    const receivedLamports = confirmed
+      .flatMap((p) => p.recipients)
+      .filter((r) => r.wallet === m.wallet)
+      .reduce((sum, r) => sum + r.lamports, 0);
+
+    // A member may have paired more than one tracker; use the most recently seen
+    const tracker = groupTrackers
+      .filter((t) => t.wallet === m.wallet)
+      .sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
+    const online = tracker?.lastSeenAt != null && now - tracker.lastSeenAt <= config.onlineWindowMs;
+
+    return {
+      wallet: m.wallet,
+      displayName: m.displayName,
+      stakedLamports: m.stakedLamports,
+      slashedLamports,
+      receivedLamports,
+      remainingLamports: m.stakedLamports - slashedLamports,
+      withdrawn: false, // set from the chain once withdraw exists
+      usage: {
+        blockedSeconds,
+        blockedMinutes,
+        minutesOver: Math.max(0, blockedMinutes - allowanceMinutes),
+        minutesCharged,
+        offlineMinutes: 0, // missed check-ins are CP3
+        byApp,
+      },
+      current: online && tracker?.current ? tracker.current : null,
+      tracker: { paired: tracker !== undefined, online, lastSeenAt: tracker?.lastSeenAt ?? null },
+    };
+  });
+
+  const leaderboard = [...members]
+    .sort((a, b) => a.usage.blockedSeconds - b.usage.blockedSeconds || a.displayName.localeCompare(b.displayName))
+    .map((m, i) => ({ wallet: m.wallet, displayName: m.displayName, blockedMinutes: m.usage.blockedMinutes, rank: i + 1 }));
+
+  return {
+    serverTime: now,
+    group: {
+      groupId: group._id.toHexString(),
+      name: group.name,
+      joinCode: group.joinCode,
+      groupPda: group.groupPda,
+      programId: config.programId,
+      status: now < periodStart ? "upcoming" : now > periodEnd ? "ended" : "active",
+      periodStart,
+      periodEnd,
+      demoMode,
+      rules: { allowanceMinutes, tariffLamportsPerMinute },
+      blocklist: group.blocklist,
+    },
+    members,
+    leaderboard,
+    penalties: allPenalties.slice(0, config.penaltyFeedLimit).map((p) => ({
+      penaltyId: p._id.toHexString(),
+      wallet: p.wallet,
+      displayName: p.displayName,
+      app: p.app,
+      minutes: p.minutes,
+      lamports: p.lamports,
+      recipients: p.recipients,
+      status: p.status,
+      signature: p.signature,
+      explorerUrl: p.signature ? explorerTxUrl(p.signature) : null,
+      roast: p.roast,
+      createdAt: p.createdAt,
+    })),
+    totals: {
+      stakedLamports: members.reduce((sum, m) => sum + m.stakedLamports, 0),
+      paidOutLamports: confirmed.reduce((sum, p) => sum + p.lamports, 0),
+    },
+  };
+}
