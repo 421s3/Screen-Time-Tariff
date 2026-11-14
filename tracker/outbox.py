@@ -17,8 +17,9 @@ from typing import Optional
 
 from api import ApiClient, ApiError
 from blocklist import Match
+from state import HERE
 
-QUEUE_DIR = Path(__file__).resolve().parent / "queue"  # gitignored
+QUEUE_DIR = HERE / "queue"  # gitignored
 
 
 def make_batch(events: list, current: Optional[Match], idle: bool, now_ms: Optional[int] = None) -> dict:

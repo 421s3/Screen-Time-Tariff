@@ -1,11 +1,15 @@
-"""Blocklist loading and matching.
+r"""Blocklist loading and matching.
 
 Format (docs/contract.md section 5; the backend sends it in GET /tracker/config):
     {
       "processes": [{"match": "VALORANT-Win64-Shipping.exe", "label": "Valorant"}, ...],
       "titles":    [{"match": "TikTok", "label": "TikTok"}, ...],
-      "browsers":  ["chrome.exe", ...]          # tracker extension, optional
+      "browsers":  ["chrome.exe", ...],         # optional (contract v0.2)
+      "steamGames": true                         # tracker extension, optional, default false
     }
+`steamGames`: any foreground exe installed under a Steam library's `steamapps\common\<Game>\`
+counts as a game, labelled `<Game>`. The Steam client itself (steam.exe, steamwebhelper.exe)
+lives outside that folder, so it never matches unless listed in `processes`.
 Plain strings are also accepted as entries ("TikTok" == {"match": "TikTok", "label": "TikTok"}).
 """
 
@@ -16,6 +20,9 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 from foreground import Sample
+
+STEAM_COMMON = "\\steamapps\\common\\"
+STEAM_NOT_GAMES = {"steamworks shared", "steamvr", "steam controller configs"}  # redistributables/tools
 
 DEFAULT_BROWSERS = (
     "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe",
@@ -44,6 +51,7 @@ class Blocklist:
     processes: list = field(default_factory=list)  # [{"match", "label"}]
     titles: list = field(default_factory=list)
     browsers: list = field(default_factory=lambda: list(DEFAULT_BROWSERS))
+    steam_games: bool = False
 
     def __post_init__(self):
         self._procs = {}
@@ -69,7 +77,15 @@ class Blocklist:
             if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
                 raise ValueError("blocklist 'browsers' must be a list of non-empty strings")
             kwargs["browsers"] = [v.strip() for v in value]
+        if "steamGames" in data:
+            if not isinstance(data["steamGames"], bool):
+                raise ValueError("blocklist 'steamGames' must be true or false")
+            kwargs["steam_games"] = data["steamGames"]
         return cls(**kwargs)
+
+    def without_titles(self) -> "Blocklist":
+        """Games-only copy: browser title matching off."""
+        return Blocklist(self.processes, [], self.browsers, self.steam_games)
 
     @classmethod
     def load(cls, path) -> "Blocklist":
@@ -82,9 +98,29 @@ class Blocklist:
         proc = sample.process.lower()
         if proc in self._procs:  # process matches win over title matches
             return Match(self._procs[proc], "process")
+        if self.steam_games:
+            game = steam_game(sample.path)
+            if game:
+                return Match(game, "process")
         # Titles only count in browsers, so an editor open on "youtube_notes.txt" isn't charged
         if proc in self._browsers:
             for label, rx in self._title_res:
                 if rx.search(sample.title):
                     return Match(label, "title")
         return None
+
+
+def steam_game(path: str) -> Optional[str]:
+    """Game folder name if `path` is an exe inside a Steam library's steamapps\\common, else None.
+
+    >>> steam_game(r"D:\\SteamLibrary\\steamapps\\common\\Team Fortress 2\\tf_win64.exe")
+    'Team Fortress 2'
+    """
+    if not path:
+        return None
+    norm = path.replace("/", "\\")
+    i = norm.lower().find(STEAM_COMMON)
+    if i < 0:
+        return None
+    game = norm[i + len(STEAM_COMMON):].split("\\", 1)[0]
+    return game if game and game.lower() not in STEAM_NOT_GAMES else None

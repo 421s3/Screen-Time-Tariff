@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +13,11 @@ try:
 except ImportError:  # non-Windows: token is stored unencrypted (still never printed or committed)
     win32crypt = None
 
-HERE = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):  # PyInstaller .exe
+    HERE = Path(sys.executable).resolve().parent  # .env, token and queue/ live next to the .exe
+    RESOURCES = Path(getattr(sys, "_MEIPASS", HERE))  # bundled read-only files (blocklist.json)
+else:
+    HERE = RESOURCES = Path(__file__).resolve().parent
 DEFAULT_API_URL = "http://localhost:4000"
 STATE_FILE = HERE / ".tracker_token.json"  # gitignored
 _DPAPI_DESC = "screen-time-tariff tracker token"

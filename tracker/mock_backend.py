@@ -25,9 +25,9 @@ DEFAULT_CONFIG = {
         "processes": [
             {"match": "VALORANT-Win64-Shipping.exe", "label": "Valorant"},
             {"match": "League of Legends.exe", "label": "League of Legends"},
-            {"match": "steam.exe", "label": "Steam"},
             {"match": "Discord.exe", "label": "Discord"},
         ],
+        "steamGames": True,  # Steam-launched games count; the Steam client itself does not
         "titles": [{"match": t, "label": t} for t in ("TikTok", "YouTube", "Reddit", "Instagram", "Twitch")],
     },
     "periodStart": 1794729000000,

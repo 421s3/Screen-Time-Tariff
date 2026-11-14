@@ -2,9 +2,9 @@
   "processes": [
     { "match": "VALORANT-Win64-Shipping.exe", "label": "Valorant" },
     { "match": "League of Legends.exe",       "label": "League of Legends" },
-    { "match": "steam.exe",                   "label": "Steam" },
     { "match": "Discord.exe",                 "label": "Discord" }
   ],
+  "steamGames": true,
   "titles": [
     { "match": "TikTok",    "label": "TikTok" },
     { "match": "YouTube",   "label": "YouTube" },

@@ -86,3 +86,22 @@ def test_load_from_file(tmp_path):
     path = tmp_path / "bl.json"
     path.write_text(json.dumps({"processes": [{"match": "steam.exe", "label": "Steam"}]}), encoding="utf-8")
     assert Blocklist.load(path).match(Sample("Steam.exe", "Steam")) == Match("Steam", P)
+
+
+# Titles captured from real Chrome/Edge windows on 2026-11-14 (tracker --scan). Edge puts a
+# zero-width space in "Microsoft\u200b Edge" and adds the profile name.
+@pytest.mark.parametrize("process,title,expected", [
+    ("chrome.exe", "Log in | TikTok - Google Chrome", Match("TikTok", T)),
+    ("chrome.exe", "Reddit - Prove your humanity - Google Chrome", Match("Reddit", T)),
+    ("chrome.exe", "Twitch - Google Chrome", Match("Twitch", T)),
+    ("msedge.exe", "TikTok - Make Your Day - Personal - Microsoft\u200b Edge", Match("TikTok", T)),
+    ("msedge.exe", "YouTube - Personal - Microsoft\u200b Edge", Match("YouTube", T)),
+    ("msedge.exe", "Instagram - Personal - Microsoft\u200b Edge", Match("Instagram", T)),
+    ("Discord.exe", "#big-announcements | sunhacks - Discord", Match("Discord", P)),
+    # Known limits, documented in README: a subreddit page titled only by its name...
+    ("msedge.exe", "funny - Personal - Microsoft\u200b Edge", None),
+    # ...and a Google search for a blocked site's name
+    ("msedge.exe", "tiktok - Google Search - Personal - Microsoft\u200b Edge", Match("TikTok", T)),
+])
+def test_real_browser_titles(process, title, expected):
+    assert BL.match(Sample(process, title)) == expected

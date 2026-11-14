@@ -6,6 +6,7 @@ usage batches to the backend (POST /usage, docs/contract.md section 4).
 """
 
 import argparse
+import hashlib
 import json
 import socket
 import sys
@@ -15,13 +16,13 @@ from pathlib import Path
 
 from api import ApiClient, ApiError, is_insecure_remote
 from blocklist import Blocklist
-from foreground import Sample, get_foreground, idle_seconds
+import winsys
+from foreground import Sample, get_foreground, idle_seconds, visible_windows
 from outbox import AuthFailed, Outbox, Reporter, make_batch
-from state import PairingState, resolve_api_url
+from state import HERE, RESOURCES, PairingState, resolve_api_url
 from usage import UsageAggregator
 
-HERE = Path(__file__).resolve().parent
-DEFAULT_BLOCKLIST = HERE / "blocklist.json"
+DEFAULT_BLOCKLIST = RESOURCES / "blocklist.json"
 DEFAULTS = {"sampleIntervalSec": 2.0, "reportIntervalSec": 30.0, "idleThresholdSec": 120.0}
 CONFIG_REFRESH_SEC = 300
 
@@ -33,7 +34,10 @@ def parse_args(argv=None):
                                      "then http://localhost:4000)")
     p.add_argument("--pair", metavar="CODE", help="pair with the 6-digit code from the dashboard")
     p.add_argument("--unpair", action="store_true", help="forget the saved token and exit")
-    p.add_argument("--fake", action="store_true", help="send synthetic usage instead of reading windows")
+    p.add_argument("--games-only", action="store_true",
+                   help="ignore browser title rules; count only games/apps (processes and Steam games)")
+    p.add_argument("--fake", action="store_true",
+                   help="SYNTHETIC usage (demo fallback): cycles Valorant/Steam game/unblocked, ignores real windows")
     p.add_argument("--data-dir", default=str(HERE), help="where the token file and queue/ live")
     p.add_argument("--blocklist", default=str(DEFAULT_BLOCKLIST),
                    help="blocklist JSON for --local, or fallback when the backend config is unreachable")
@@ -41,6 +45,10 @@ def parse_args(argv=None):
     p.add_argument("--report-every", type=float, help="seconds between usage batches (overrides backend)")
     p.add_argument("--verbose", action="store_true", help="print every sample, not only changes")
     p.add_argument("--once", action="store_true", help="print the current foreground window and exit")
+    p.add_argument("--scan", action="store_true", help="classify every open window (demo laptop check) and exit")
+    p.add_argument("--install-startup", action="store_true",
+                   help="start this tracker automatically at Windows sign-in (current user) and exit")
+    p.add_argument("--uninstall-startup", action="store_true", help="remove the sign-in entry and exit")
     args = p.parse_args(argv)
     interval = DEFAULTS["sampleIntervalSec"] if args.interval is None else args.interval
     report = DEFAULTS["reportIntervalSec"] if args.report_every is None else args.report_every
@@ -57,9 +65,10 @@ def describe(sample, match):
 
 
 def fake_samples():
-    """--fake: 30 s of TikTok, 30 s of Valorant, 30 s of something unblocked, repeat."""
-    cycle = [Sample("chrome.exe", "TikTok - Make Your Day - Google Chrome"),
-             Sample("VALORANT-Win64-Shipping.exe", "VALORANT"),
+    """--fake: 30 s of Valorant, 30 s of a Steam game, 30 s of something unblocked, repeat."""
+    cycle = [Sample("VALORANT-Win64-Shipping.exe", "VALORANT"),
+             Sample("tf_win64.exe", "Team Fortress 2",
+                    r"C:\Program Files (x86)\Steam\steamapps\common\Team Fortress 2\tf_win64.exe"),
              Sample("Code.exe", "tracker.py - Visual Studio Code")]
     return lambda: cycle[int(time.monotonic() // 30) % len(cycle)]
 
@@ -128,17 +137,43 @@ def queue_for(args, pairing):
 
 # ---------------------------------------------------------------- main loop
 
+def startup_command(args) -> str:
+    """Command line the sign-in entry runs: this .exe (or python + tracker.py) with the same data dir."""
+    target = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, str(Path(__file__).resolve())]
+    return " ".join(f'"{a}"' for a in [*target, "--data-dir", str(Path(args.data_dir).resolve())])
+
+
 def run(args):
     if args.unpair:
         PairingState(Path(args.data_dir) / ".tracker_token.json").clear()
         print("Token removed. Queued batches (if any) are kept in queue/.")
         return
-
-    read_window = fake_samples() if args.fake else get_foreground
-    if args.once:
-        sample = read_window()
-        print(describe(sample, Blocklist.load(args.blocklist).match(sample)))
+    if args.install_startup:
+        winsys.set_startup(startup_command(args))
+        print(f"Will start at sign-in: {startup_command(args)}")
         return
+    if args.uninstall_startup:
+        print("Removed sign-in entry." if winsys.set_startup(None) else "No sign-in entry was set.")
+        return
+    read_window = fake_samples() if args.fake else get_foreground
+    if args.scan or args.once:
+        blocklist = Blocklist.load(args.blocklist)
+        blocklist = blocklist.without_titles() if args.games_only else blocklist
+        for sample in visible_windows() if args.scan else [read_window()]:
+            print(describe(sample, blocklist.match(sample)))
+        return
+
+    # Two trackers on one data dir would report the same time twice (e.g. sign-in entry + manual start)
+    data_key = str(Path(args.data_dir).resolve()).lower().encode()
+    with winsys.single_instance("ScreenTimeTariffTracker-" + hashlib.sha256(data_key).hexdigest()[:16]) as ok:
+        if not ok:
+            sys.exit("Another tracker is already running with this data dir. Close it first.")
+        track(args, read_window)
+
+
+def track(args, read_window):
+    if args.fake:
+        print("*** SYNTHETIC MODE (--fake): usage below is generated, not read from real windows ***", flush=True)
 
     reporter = client = pairing = None
     if args.local:
@@ -150,16 +185,20 @@ def run(args):
 
     def apply(config):
         cfg = {**DEFAULTS, **{k: config[k] for k in DEFAULTS if config.get(k)}}
-        return (Blocklist.from_dict(config["blocklist"]),
+        blocklist = Blocklist.from_dict(config["blocklist"])
+        return (blocklist.without_titles() if args.games_only else blocklist,
                 float(args.interval or cfg["sampleIntervalSec"]),
                 float(args.report_every or cfg["reportIntervalSec"]),
                 float(cfg["idleThresholdSec"]))
 
     blocklist, interval, report_every, idle_after = apply(config)
-    print(f"Blocklist from {source}: {len(blocklist.processes)} processes, {len(blocklist.titles)} titles. "
+    print(f"Blocklist from {source}: {len(blocklist.processes)} processes, "
+          f"Steam games {'on' if blocklist.steam_games else 'off'}, "
+          f"{len(blocklist.titles)} browser titles{' (off: --games-only)' if args.games_only else ''}. "
           f"Sampling every {interval:g}s, reporting every {report_every:g}s. Ctrl+C to stop.", flush=True)
 
     agg = UsageAggregator(max_gap=interval * 3)
+    resync_after = interval * 3  # a longer gap means sleep/hibernate or a stall, not a slow tick
     start = next_tick = time.monotonic()
     next_report, next_config = start + report_every, start + CONFIG_REFRESH_SEC
     last_line = None
@@ -171,15 +210,34 @@ def run(args):
         totals = {k: round(v, 1) for k, v in sorted(agg.totals.items())}
         status = reporter.submit(batch) if reporter else "local only"
         print(f"--- batch {json.dumps(events)}  totals {json.dumps(totals)}  "
-              f"uptime {time.monotonic() - start:.0f}s  [{status}]", flush=True)
+              f"uptime {time.monotonic() - start:.0f}s  [{status}]"
+              + ("  (SYNTHETIC)" if args.fake else ""), flush=True)
+
+    def save_on_exit():
+        """Console closed / sign-out / shutdown: ~5 s to live, so queue to disk, no network."""
+        agg.record(time.monotonic(), None, int(time.time() * 1000))
+        events = agg.drain()
+        if events and reporter:
+            reporter.outbox.put(make_batch(events, None, False))
+
+    winsys.on_console_close(save_on_exit)
 
     try:
         while True:
             now = time.monotonic()
+            if now - next_tick > resync_after:
+                # Woke from sleep (monotonic time includes it) or the loop stalled: restart the
+                # schedule from now instead of replaying every missed tick and report
+                next_tick = now
+                next_report = max(next_report, now)
+                next_config = max(next_config, now)
             sample = read_window()
             match = blocklist.match(sample)
+            idle = not args.fake and idle_seconds() >= idle_after
+            if idle and match and match.match_type == "process":
+                match = None  # AFK in a game/app isn't charged; a video in a browser tab still is
             agg.record(now, match, int(time.time() * 1000))
-            line = describe(sample, match)
+            line = describe(sample, match) + ("  (idle)" if idle else "")
             if args.verbose or line != last_line:
                 print(f"{datetime.now():%H:%M:%S}  {line}", flush=True)
                 last_line = line
