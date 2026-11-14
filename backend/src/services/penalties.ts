@@ -1,7 +1,7 @@
 import { ObjectId, type WithId } from "mongodb";
 import { groups, penalties } from "../db.js";
 import type { GroupDoc, PenaltyDoc, PenaltyStatus } from "../types.js";
-import { usageByWalletApp } from "./usage.js";
+import { blockedUsage } from "./usage.js";
 
 /** Statuses that count as already charged (or about to be), so the worker doesn't charge them again. */
 export const RESERVED_STATUSES: PenaltyStatus[] = ["pending", "sent", "confirmed"];
@@ -29,7 +29,7 @@ export function computePenalty(i: PenaltyInput): { minutes: number; lamports: nu
 
 async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<PenaltyDoc[]> {
   const [usage, reserved] = await Promise.all([
-    usageByWalletApp(group),
+    blockedUsage(group, now),
     penalties()
       .aggregate<{ _id: string; minutes: number; lamports: number }>([
         { $match: { groupId: group._id, status: { $in: RESERVED_STATUSES } } },

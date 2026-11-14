@@ -13,8 +13,11 @@ const Env = z.object({
   WORKER_INTERVAL_SEC: z.coerce.number().positive().default(30),
   // off = calculate penalties only (CP1); mock = in-memory copy of the program; devnet = real program
   CHAIN_MODE: z.enum(["off", "mock", "devnet"]).default("off"),
-  // Cap reported seconds at the real time since the tracker's last batch. Only the smoke test turns it off.
+  // Cap reported seconds at the real time since the tracker was paired. Only the smoke test turns it off.
   USAGE_RATE_CAP: z.enum(["true", "false"]).default("true"),
+  // Count tracker silence (beyond the grace) as blocked time. Off while developing, on for the demo.
+  ENFORCE_OFFLINE: z.enum(["true", "false"]).default("false"),
+  OFFLINE_GRACE_SEC: z.coerce.number().int().min(0).default(120),
 });
 
 const parsed = Env.safeParse(process.env);
@@ -58,6 +61,8 @@ export const config = {
   workerIntervalSec: env.WORKER_INTERVAL_SEC,
   chainMode: env.CHAIN_MODE,
   usageRateCap: env.USAGE_RATE_CAP === "true",
+  enforceOffline: env.ENFORCE_OFFLINE === "true", // mutable so tests can flip it
+  offlineGraceSec: env.OFFLINE_GRACE_SEC,
 
   // Fixed rules (contract sections 4 and 6)
   sampleIntervalSec: 2,

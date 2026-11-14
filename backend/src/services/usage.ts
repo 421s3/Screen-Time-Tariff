@@ -1,6 +1,8 @@
 import type { WithId } from "mongodb";
+import { config } from "../config.js";
 import { usageEvents } from "../db.js";
-import type { GroupDoc } from "../types.js";
+import type { GroupDoc, MemberDoc } from "../types.js";
+import { OFFLINE_APP, offlineByWallet } from "./offline.js";
 
 export interface WalletAppUsage {
   wallet: string;
@@ -29,6 +31,23 @@ export async function usageByWalletApp(group: WithId<GroupDoc>): Promise<WalletA
       { $project: { _id: 0, wallet: "$_id.wallet", app: "$_id.app", seconds: 1, lastAt: 1 } },
     ])
     .toArray();
+}
+
+/** Staked = has an on-chain Member account, or (CHAIN_MODE=off) a self-reported stake. */
+export function isStaked(m: MemberDoc): boolean {
+  return config.chainMode === "off" ? m.stakedLamports > 0 : m.onchain != null;
+}
+
+/**
+ * Everything that counts as blocked time: tracked usage plus, when ENFORCE_OFFLINE is on,
+ * one "Tracker offline" row per staked member for silence beyond the grace period.
+ * Penalties, the winner rule, and /state all read from here so they always agree.
+ */
+export async function blockedUsage(group: WithId<GroupDoc>, now: number): Promise<WalletAppUsage[]> {
+  const stakedWallets = group.members.filter(isStaked).map((m) => m.wallet);
+  const [usage, offline] = await Promise.all([usageByWalletApp(group), offlineByWallet(group, stakedWallets, now)]);
+  for (const [wallet, o] of offline) usage.push({ wallet, app: OFFLINE_APP, seconds: o.seconds, lastAt: o.lastAt });
+  return usage;
 }
 
 /**

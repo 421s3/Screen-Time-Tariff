@@ -60,6 +60,8 @@ export interface GroupDoc {
   blocklist: Blocklist;
   members: MemberDoc[];
   createdAt: number;
+  graceSecs?: number | null; // settle window length: settle must happen before periodEnd + graceSecs
+  autoSettle?: boolean; // false = backend never settles (refund demo); missing = true
   onchain?: { penaltyPool: number; settled: boolean; syncedAt: number } | null;
   settlement?: Settlement | null;
 }
@@ -93,11 +95,15 @@ export interface TrackerDoc {
   reportedSeconds?: number; // total accepted, for the usage budget
 }
 
+/** One per accepted /usage call. Doubles as the tracker's check-in log for missed check-ins. */
 export interface UsageBatchDoc {
   _id: ObjectId;
   trackerId: ObjectId;
   batchId: string;
   receivedAt: number;
+  groupId?: ObjectId;
+  wallet?: string;
+  sentAt?: number; // when the tracker made the batch (kept on retries), clamped to [paired, received]
 }
 
 export interface UsageEventDoc {

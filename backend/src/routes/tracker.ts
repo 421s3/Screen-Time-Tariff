@@ -53,7 +53,17 @@ trackerRouter.post("/usage", requireTracker, async (req, res) => {
 
   // Record the batch id first: a retry with the same id is acknowledged but not counted twice
   try {
-    await usageBatches().insertOne({ _id: new ObjectId(), trackerId: tracker._id, batchId: body.batchId, receivedAt: now });
+    await usageBatches().insertOne({
+      _id: new ObjectId(),
+      trackerId: tracker._id,
+      batchId: body.batchId,
+      receivedAt: now,
+      groupId: tracker.groupId,
+      wallet: tracker.wallet,
+      // Check-in time for missed check-ins. Retried batches keep their original sentAt, so a batch
+      // resent after an outage fills the gap it covers. Clamped so it can't predate pairing or be in the future.
+      sentAt: Math.min(Math.max(body.sentAt, tracker.createdAt), now),
+    });
   } catch (e) {
     if (isDuplicateKeyError(e)) {
       res.json({ accepted: true, duplicate: true });

@@ -45,6 +45,7 @@ export async function ensureIndexes(): Promise<void> {
     trackers().createIndex({ tokenHash: 1 }, { unique: true }),
     trackers().createIndex({ groupId: 1, wallet: 1 }),
     usageBatches().createIndex({ trackerId: 1, batchId: 1 }, { unique: true }),
+    usageBatches().createIndex({ groupId: 1, wallet: 1, sentAt: 1 }),
     usageEvents().createIndex({ groupId: 1, receivedAt: 1 }),
     penalties().createIndex({ groupId: 1, createdAt: -1 }),
     penalties().createIndex({ groupId: 1, wallet: 1, status: 1 }),
