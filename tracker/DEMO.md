@@ -12,7 +12,7 @@ On **Alice's** laptop:
 3. Install one light Steam game that starts in under 10 s (e.g. Aim Lab or a small free game).
    Launch it once ahead of time so shaders and updates are done.
 4. Run `ScreenTimeTariffTracker.exe --scan --games-only` with the game open: the game must show
-   `BLOCKED [<Game>/process]`, and `steam.exe` must show `ok`.
+   `TRACKED [<Game>/process]`, and `steam.exe` must show `ok`.
 5. Close the game. Start the tracker for real and leave its console visible on the side.
 6. Check the dashboard shows Alice's tracker online.
 7. Turn off sleep and screen lock for the demo (Settings → Power), and silence notifications.
@@ -26,8 +26,8 @@ Backups: the `--fake` run below, and the recorded video.
 | 0:00–0:30 | presenter | Problem + pitch | — |
 | 0:30–0:50 | Bob | Show group, stakes on Explorer, blocklist (Valorant, League, Steam games) | dashboard |
 | 0:50–1:00 | Alice | Launch the Steam game from Steam | Steam client in front: tracker console says `ok` (the launcher isn't gameplay) |
-| 1:00–2:10 | Alice | Play | console: `BLOCKED [<Game>/process]`; dashboard: Alice "🎮 <Game>", usage bar fills, limit passes, **penalty lands**, Bob's screen shows "+0.01 SOL" and the roast |
-| 2:10–2:25 | Alice | Alt+Tab to the desktop, then back | console switches to `ok`, then back to `BLOCKED`; the bar pauses |
+| 1:00–2:10 | Alice | Play | console: `TRACKED [<Game>/process]`; dashboard: Alice "🎮 <Game>", usage bar fills, limit passes, **penalty lands**, Bob's screen shows "+0.01 SOL" and the roast |
+| 2:10–2:25 | Alice | Alt+Tab to the desktop, then back | console switches to `ok`, then back to `TRACKED`; the bar pauses |
 | 2:25–2:30 | Alice | Minimize the game | console `(no foreground window)`: a minimized game isn't charged |
 | 2:30–3:00 | presenter | Trust and next steps; click a penalty through to Explorer | Explorer |
 

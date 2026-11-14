@@ -1,9 +1,13 @@
 # tracker/ — Windows game-time tracker (Dev 3)
 
 Watches what's in front on a Windows PC, mainly **PC games** (Valorant, League of Legends,
-anything launched from Steam, any configured exe), and reports seconds of blocked play to the
+anything launched from Steam, any configured exe), and reports seconds of tracked use to the
 backend every 30 s. The report doubles as the tracker's check-in. Browser tab tracking
 (TikTok, YouTube, …) is optional.
+
+**Tracking only.** The tracker never closes, blocks or interrupts anything: listed apps, games and
+sites stay fully usable. The `blocklist` is the list of things whose foreground time is measured
+and sent to the backend, which charges tariffs once the allowance is used up.
 
 - Demo procedure: [DEMO.md](DEMO.md)
 - Spec: [`../docs/contract.md`](../docs/contract.md) section 4 (endpoints) and section 5 (blocklist)
@@ -68,8 +72,8 @@ down saves unsent seconds to the queue instead (no time for the network); they g
 ```
 Paired as Alice (H9Rje...) in group 6734f0c2a1b2c3d4e5f60718.
 Blocklist from backend: 3 processes, Steam games on, 5 browser titles. Sampling every 2s, reporting every 30s. Ctrl+C to stop.
-14:06:29  BLOCKED [Valorant/process]     VALORANT-Win64-Shipping.exe | 'VALORANT'
-14:07:02  BLOCKED [Team Fortress 2/process]  tf_win64.exe | 'Team Fortress 2'
+14:06:29  TRACKED [Valorant/process]     VALORANT-Win64-Shipping.exe | 'VALORANT'
+14:07:02  TRACKED [Team Fortress 2/process]  tf_win64.exe | 'Team Fortress 2'
 14:07:40  ok                             Discord.exe | '#general - Discord'   (idle)
 --- batch [{"app": "Valorant", "matchType": "process", "startedAt": 1794690389474, "seconds": 30}]  ...  [sent 1 batch(es)]
 ```
@@ -99,7 +103,7 @@ Every `sampleIntervalSec` (2 s) the tracker reads the foreground window and its 
 | Riot Client, League client/lobby (`LeagueClientUx.exe`) | no | not listed |
 | Any game under `steamapps\common\<Game>\` (any Steam library, any drive) | yes, as `<Game>` | `steamGames: true` |
 | Steam client (`steam.exe`, `steamwebhelper.exe`), Steamworks redistributables, SteamVR | no | outside the game folders / excluded |
-| Alt+Tab to Discord / desktop | only if that app is blocked | only the foreground window counts |
+| Alt+Tab to Discord / desktop | only if that app is on the list | only the foreground window counts |
 | Game minimized (Win+D, Alt+Tab out of exclusive fullscreen) | no | minimized windows are ignored even if Windows still calls them "foreground" |
 | No keyboard, mouse **or controller** input for `idleThresholdSec` (120 s) | games: no; browser video: yes | `GetLastInputInfo` + XInput |
 | Lock screen, Ctrl+Alt+Del, UAC prompt | no | secure desktop / `LockApp.exe` detected |
@@ -228,21 +232,36 @@ It keeps tokens in memory: after restarting it, the tracker gets a 401 and asks 
 Matches `docs/contract.md` **v0.2**: endpoints, headers, `/usage` body, error body, `{match, label}`
 entries, `matchType`, precedence, whole-word titles, optional `browsers`, ms timestamps.
 
-Open items for Dev 4 (and Dev 1 for the dashboard's default blocklist); the contract is unchanged:
+### Tested against the real backend (2026-11-14)
 
-| # | Topic | Contract | Tracker | Needs |
+`origin/main` backend (`b3ca464`) on `http://127.0.0.1:4000`, MongoDB Atlas (separate test database
+`screen-time-tariff-tracker-e2e`), `CHAIN_MODE=mock` (no Solana transactions):
+
+| Check | Result |
+|---|---|
+| `/pair/complete` with a dashboard code from `/pair/start` | paired; token stored DPAPI-encrypted on the PC, as a hash in MongoDB |
+| `/tracker/config` | blocklist + intervals applied |
+| `--fake` usage, 4 × 5 s batches | 20 s stored in `usageEvents`; `trackers.current`/`idle`/`lastSeenAt` updated |
+| Same batch sent 3 times (resend + queued retry) | stored once (`duplicate: true`); queue emptied |
+| Backend stopped, tracker keeps running, backend restarted | 2 queued batches (10 s) sent on reconnect, stored once, not scaled by the rate cap |
+| One website event (TikTok, `title`) + one game event (Valorant, `process`) | both stored; both in `/groups/:id/state` `byApp`, `current: Valorant`, tracker online |
+| Invalid token | `401 TRACKER_TOKEN_INVALID` (tracker re-pairs) |
+
+### Open items (Dev 4 / Dev 1); the contract is unchanged
+
+| # | Topic | Backend today | Tracker | Needs |
 |---|---|---|---|---|
-| 1 | **Steam games** | not covered; example blocklist lists `steam.exe` | optional `steamGames: true` key; the Steam client isn't gameplay | add `steamGames` to the blocklist format and the dashboard's default; drop `steam.exe` from the default |
-| 2 | **Seconds cap** | cap batch seconds at real time since the previous batch | queued batches from an outage arrive back to back | **blocker:** cap by `sentAt` gaps, not arrival time |
-| 3 | Idle | TBD (suggests: titles count while idle) | games/apps not counted while idle, browser titles still counted; `idle` sent | confirm |
-| 4 | `sentAt` | not specified | creation time; unchanged on retries | confirm |
-| 5 | Auth errors | not specified | 401/403 = re-pair; other 4xx = batch rejected | confirm |
-| 6 | `/pair/complete` | returns `trackerToken`, `wallet`, `groupId`, `displayName` | `trackerToken`, `wallet`, `groupId` **required** | always return them |
-| 7 | Localhost | `http://localhost:4000` | Windows tries `::1` first; IPv4-only costs ~2 s per request | listen on both, or use `127.0.0.1` |
-| 8 | Synthetic usage | no flag | `--fake` batches look real to the backend | optional: a `synthetic` flag if the dashboard should label it |
+| 1 | **Steam games** | backend fix ready, not merged yet: schema keeps `steamGames`, default list has `steamGames: true` and no `steam.exe` (explicit `steam.exe` still allowed). The dashboard (`web/src/pages/CreateGroup.tsx`) still sends its own list with `steam.exe` and no `steamGames` | `steamGames: true` counts Steam-launched games; without it they aren't counted | merge the backend fix; Dev 1: send `steamGames` from the dashboard |
+| 2 | Period boundary | usage counts toward a period by `receivedAt` | an outage backlog may arrive after `periodEnd` | optional: count by `startedAt` |
+| 3 | Idle | TBD in contract | games/apps not counted while idle; browser titles still counted; `idle` sent | confirm |
+| 4 | `sentAt` | stored per batch, not used | creation time; unchanged on retries | none |
+| 5 | Synthetic usage | no flag | `--fake` batches look real | optional flag if the dashboard should label it |
+
+Resolved since CP2: the seconds cap is a budget since pairing (an outage backlog fits); 401 codes,
+410 `PAIR_CODE_EXPIRED`, `wallet`/`groupId` always returned; the server listens on IPv4 and IPv6.
 
 ## Privacy
 
-Only blocked matches leave the machine: app label, match type, timestamps and seconds, plus the
+Only listed matches leave the machine: app label, match type, timestamps and seconds, plus the
 PC's hostname at pairing. No keystrokes, no browsing history, no window titles or exe paths
 (titles and paths are only used locally).

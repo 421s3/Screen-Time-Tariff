@@ -19,7 +19,7 @@ def test_args_reject_bad_interval():
 def test_once_prints_match(monkeypatch, capsys):
     monkeypatch.setattr(tracker, "get_foreground", lambda: Sample("chrome.exe", "TikTok - Google Chrome"))
     tracker.run(tracker.parse_args(["--once"]))
-    assert "BLOCKED [TikTok/title]" in capsys.readouterr().out
+    assert "TRACKED [TikTok/title]" in capsys.readouterr().out
 
 
 def fake_clock(monkeypatch, samples):

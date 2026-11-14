@@ -28,7 +28,7 @@ CONFIG_REFRESH_SEC = 300
 
 
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description="Track time spent on blocked apps and sites.")
+    p = argparse.ArgumentParser(description="Track foreground time on listed apps, games and sites (tracking only; nothing is blocked).")
     p.add_argument("--local", action="store_true", help="Checkpoint 1 mode: no backend, print batches only")
     p.add_argument("--api-url", help="backend base URL (default: API_URL env var, then tracker/.env, "
                                      "then http://localhost:4000)")
@@ -60,7 +60,7 @@ def parse_args(argv=None):
 def describe(sample, match):
     if sample is None:
         return "(no foreground window)"
-    tag = f"BLOCKED [{match.label}/{match.match_type}]" if match else "ok"
+    tag = f"TRACKED [{match.label}/{match.match_type}]" if match else "ok"
     return f"{tag:<30} {sample.process} | {sample.title!r}"
 
 
@@ -76,7 +76,11 @@ def fake_samples():
 # ---------------------------------------------------------------- backend setup
 
 def pair(client, pairing, api_url, code):
-    code = code or input("Pairing code from the dashboard: ").strip()
+    if not code:
+        try:
+            code = input("Pairing code from the dashboard: ").strip()
+        except EOFError:  # no console to type into (e.g. started at sign-in before pairing)
+            sys.exit("Not paired yet. Run once with --pair CODE (code from the dashboard).")
     try:
         resp = client.pair_complete(code, socket.gethostname())
     except ApiError as e:

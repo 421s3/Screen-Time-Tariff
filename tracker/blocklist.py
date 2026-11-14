@@ -92,7 +92,7 @@ class Blocklist:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
     def match(self, sample: Optional[Sample]) -> Optional[Match]:
-        """Return what the sample counts against, or None if it isn't blocked."""
+        """Return what the sample counts against, or None if it is not on the list (tracking only; nothing is ever blocked)."""
         if sample is None:
             return None
         proc = sample.process.lower()

@@ -112,6 +112,7 @@ class PairingState:
         self.path.unlink(missing_ok=True)
 
     def _write(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)  # a new --data-dir
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.data, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)  # atomic: a crash never leaves a half-written token file

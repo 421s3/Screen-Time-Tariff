@@ -305,3 +305,20 @@ def test_pair_response_without_wallet_is_refused(backend, tmp_path, monkeypatch)
     with pytest.raises(SystemExit, match="needs trackerToken, wallet and groupId"):
         run_tracker(monkeypatch, backend, tmp_path, [], "--pair", "222222")
     assert not (tmp_path / ".tracker_token.json").exists()
+
+
+def test_pairing_into_a_new_data_dir_saves_the_token(backend, tmp_path, monkeypatch):
+    """Regression: the code was used up on the backend, then saving the token failed because
+    --data-dir didn't exist yet, so the tracker could never pair with that code again."""
+    data = tmp_path / "does" / "not" / "exist"
+    run_tracker(monkeypatch, backend, data, [Sample("Code.exe", "x")], "--pair", "482913")
+    assert PairingState(data / ".tracker_token.json").load(backend.url)
+
+
+def test_no_console_for_pairing_prompt_exits_cleanly(backend, tmp_path, monkeypatch):
+    def no_stdin(prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_stdin)
+    with pytest.raises(SystemExit, match="--pair CODE"):
+        run_tracker(monkeypatch, backend, tmp_path, [])
