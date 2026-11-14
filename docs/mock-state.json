@@ -57,7 +57,8 @@
         }
       ]
     },
-    "settlement": null
+    "settlement": null,
+    "settleDeadline": 1794730500000
   },
   "members": [
     {
@@ -94,7 +95,8 @@
       "tracker": {
         "paired": true,
         "online": true,
-        "lastSeenAt": 1794729590000
+        "lastSeenAt": 1794729590000,
+        "idle": false
       }
     },
     {
@@ -127,7 +129,8 @@
       "tracker": {
         "paired": true,
         "online": true,
-        "lastSeenAt": 1794729585000
+        "lastSeenAt": 1794729585000,
+        "idle": true
       }
     },
     {
@@ -156,7 +159,8 @@
       "tracker": {
         "paired": true,
         "online": false,
-        "lastSeenAt": 1794729410000
+        "lastSeenAt": 1794729410000,
+        "idle": false
       }
     }
   ],

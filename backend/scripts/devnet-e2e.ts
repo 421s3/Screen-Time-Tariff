@@ -61,7 +61,7 @@ const groupId = String(Math.floor(Date.now() / 1000));
 const periodEndSec = Math.floor(Date.now() / 1000) + 120;
 const groupPda = deriveGroupPda(programId, alice.publicKey.toBase58(), groupId);
 const create = await programFor(alice)
-  .methods.createGroup(new BN(groupId), oracle.publicKey, 1, new BN(1_000_000), new BN(periodEndSec), new BN(60))
+  .methods.createGroup(new BN(groupId), oracle.publicKey, 1, new BN(1_000_000), new BN(periodEndSec), new BN(600))
   .accountsPartial({ admin: alice.publicKey, group: groupPda })
   .rpc();
 console.log("create_group:", tx(create));

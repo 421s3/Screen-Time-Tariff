@@ -47,6 +47,10 @@ const createGroupInput = z.object({
   createSignature: z.string().min(1).optional(),
   rules: rulesInput,
   blocklist: blocklistInput.optional(),
+  // false = the backend never settles this group, so members get emergency_refund (refund demo)
+  autoSettle: z.boolean().optional(),
+  // Mock mode only (devnet reads it from the chain): settle window length in seconds
+  graceSecs: z.number().int().positive().optional(),
 });
 
 const joinInput = z.object({
@@ -78,7 +82,7 @@ async function onchainRules(
   groupPda: string | undefined,
   groupSeed: string | undefined,
   rules: Rules,
-): Promise<Rules> {
+): Promise<{ rules: Rules; graceSecs: number }> {
   if (!groupPda || !groupSeed) {
     throw new ApiError(400, "ONCHAIN_GROUP_REQUIRED", "Create the group on-chain first, then send groupPda and groupSeed");
   }
@@ -93,12 +97,26 @@ async function onchainRules(
   const periodEnd = onchain.periodEndSec * 1000;
   // The chain is the source of truth for the money rules; periodStart only exists off-chain
   return {
-    ...rules,
-    allowanceMinutes: onchain.allowanceMinutes,
-    tariffLamportsPerMinute: onchain.tariffLamportsPerMin,
-    periodEnd,
-    periodStart: Math.min(rules.periodStart, periodEnd - 1),
+    rules: {
+      ...rules,
+      allowanceMinutes: onchain.allowanceMinutes,
+      tariffLamportsPerMinute: onchain.tariffLamportsPerMin,
+      periodEnd,
+      periodStart: Math.min(rules.periodStart, periodEnd - 1),
+    },
+    graceSecs: onchain.graceSecs,
   };
+}
+
+/** Warn when the settle window is too short for the worker to settle reliably. */
+function warnIfShortGrace(name: string, graceSecs: number, autoSettle: boolean): void {
+  const neededSec = config.settleDelayMs / 1000 + 2 * config.workerIntervalSec;
+  if (autoSettle && graceSecs < neededSec) {
+    console.warn(
+      `[groups] "${name}" has grace_secs=${graceSecs}, shorter than the ~${neededSec}s the backend needs to settle. ` +
+        "Use 600 (contract section 6).",
+    );
+  }
 }
 
 groupsRouter.post("/groups", requireWallet, async (req, res) => {
@@ -110,23 +128,27 @@ groupsRouter.post("/groups", requireWallet, async (req, res) => {
   let rules: Rules = body.rules;
   let groupPda = body.groupPda ?? null;
   let groupSeed = body.groupSeed ?? null;
+  let graceSecs: number | null = null;
+  const autoSettle = body.autoSettle ?? true;
   if (chain instanceof FakeChain) {
     // Mock mode: do create_group on the creator's behalf
     groupSeed = groupSeed ?? String(now);
+    graceSecs = body.graceSecs ?? config.graceSecs;
     try {
       groupPda = chain.createGroup(wallet, groupSeed, {
         allowanceMinutes: rules.allowanceMinutes,
         tariffLamportsPerMin: rules.tariffLamportsPerMinute,
         periodEndSec: Math.floor(rules.periodEnd / 1000),
-        graceSecs: config.graceSecs,
+        graceSecs,
       });
     } catch (e) {
       if (e instanceof FakeChainError) throw new ApiError(409, "CHAIN_REJECTED", e.message);
       throw e;
     }
   } else if (chain) {
-    rules = await onchainRules(chain, wallet, body.groupPda, body.groupSeed, rules);
+    ({ rules, graceSecs } = await onchainRules(chain, wallet, body.groupPda, body.groupSeed, rules));
   }
+  if (graceSecs !== null) warnIfShortGrace(body.name, graceSecs, autoSettle);
 
   // Retry in the unlikely case the random join code is taken
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -142,6 +164,8 @@ groupsRouter.post("/groups", requireWallet, async (req, res) => {
       blocklist: body.blocklist ?? DEFAULT_BLOCKLIST,
       members: [{ wallet, displayName: body.displayName, joinedAt: now, stakedLamports: 0, stakeSignatures: [] }],
       createdAt: now,
+      graceSecs,
+      autoSettle,
     };
     try {
       await groups().insertOne(group);
