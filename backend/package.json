@@ -8,7 +8,9 @@
     "typecheck": "tsc",
     "make-oracle": "tsx scripts/make-oracle.ts",
     "check-db": "tsx scripts/check-db.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "devnet-e2e": "tsx scripts/devnet-e2e.ts",
+    "sync-idl": "node -e \"for(const f of ['json','ts'])require('fs').copyFileSync('../program/idl/screen_time_tariff.'+f,'src/chain/idl/screen_time_tariff.'+f)\""
   },
   "type": "module",
   "dependencies": {

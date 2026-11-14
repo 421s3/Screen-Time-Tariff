@@ -11,6 +11,7 @@ metaRouter.get("/health", (_req, res) => {
 metaRouter.get("/config", (_req, res) => {
   res.json({
     cluster: "devnet",
+    chainMode: config.chainMode, // off | mock | devnet
     programId: config.programId, // null until Dev 2 deploys
     oraclePubkey: config.oraclePubkey,
   });

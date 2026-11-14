@@ -2,12 +2,14 @@ import { Router } from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
 import { requireWallet, walletOf } from "../auth.js";
+import { type Chain, FakeChain, getChain } from "../chain/index.js";
+import { FakeChainError } from "../chain/fakeChain.js";
 import { config } from "../config.js";
 import { groups, isDuplicateKeyError } from "../db.js";
 import { DEFAULT_BLOCKLIST } from "../defaults.js";
 import { ApiError } from "../errors.js";
 import { buildGroupState } from "../services/state.js";
-import type { GroupDoc } from "../types.js";
+import type { GroupDoc, Rules } from "../types.js";
 import { isPubkey, parseGroupId, randomJoinCode } from "../util.js";
 
 const pubkey = z.string().refine(isPubkey, "not a valid Solana address");
@@ -58,10 +60,72 @@ const stakeInput = z.object({
 
 export const groupsRouter = Router();
 
+/** Polls the chain a few times: an account written by a just-confirmed transaction can lag briefly. */
+async function fetchWithRetry<T>(fn: () => Promise<T | null>, tries = 4, delayMs = 1000): Promise<T | null> {
+  for (let i = 0; i < tries; i++) {
+    const value = await fn();
+    if (value) return value;
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return null;
+}
+
+/** Turns an on-chain group into the backend's rules, checking it's really ours. */
+async function onchainRules(
+  chain: Chain,
+  wallet: string,
+  groupPda: string | undefined,
+  groupSeed: string | undefined,
+  rules: Rules,
+): Promise<Rules> {
+  if (!groupPda || !groupSeed) {
+    throw new ApiError(400, "ONCHAIN_GROUP_REQUIRED", "Create the group on-chain first, then send groupPda and groupSeed");
+  }
+  if (chain.groupPda(wallet, groupSeed) !== groupPda) {
+    throw new ApiError(400, "GROUP_PDA_MISMATCH", "groupPda doesn't match your wallet and groupSeed");
+  }
+  const onchain = await fetchWithRetry(() => chain.fetchGroup(groupPda));
+  if (!onchain) throw new ApiError(409, "GROUP_NOT_ON_CHAIN", "That group account doesn't exist on-chain (yet)");
+  if (onchain.oracle !== config.oraclePubkey) {
+    throw new ApiError(409, "WRONG_ORACLE", `The group's oracle must be ${config.oraclePubkey}`);
+  }
+  const periodEnd = onchain.periodEndSec * 1000;
+  // The chain is the source of truth for the money rules; periodStart only exists off-chain
+  return {
+    ...rules,
+    allowanceMinutes: onchain.allowanceMinutes,
+    tariffLamportsPerMinute: onchain.tariffLamportsPerMin,
+    periodEnd,
+    periodStart: Math.min(rules.periodStart, periodEnd - 1),
+  };
+}
+
 groupsRouter.post("/groups", requireWallet, async (req, res) => {
   const body = createGroupInput.parse(req.body);
   const wallet = walletOf(res);
   const now = Date.now();
+  const chain = getChain();
+
+  let rules: Rules = body.rules;
+  let groupPda = body.groupPda ?? null;
+  let groupSeed = body.groupSeed ?? null;
+  if (chain instanceof FakeChain) {
+    // Mock mode: do create_group on the creator's behalf
+    groupSeed = groupSeed ?? String(now);
+    try {
+      groupPda = chain.createGroup(wallet, groupSeed, {
+        allowanceMinutes: rules.allowanceMinutes,
+        tariffLamportsPerMin: rules.tariffLamportsPerMinute,
+        periodEndSec: Math.floor(rules.periodEnd / 1000),
+        graceSecs: config.graceSecs,
+      });
+    } catch (e) {
+      if (e instanceof FakeChainError) throw new ApiError(409, "CHAIN_REJECTED", e.message);
+      throw e;
+    }
+  } else if (chain) {
+    rules = await onchainRules(chain, wallet, body.groupPda, body.groupSeed, rules);
+  }
 
   // Retry in the unlikely case the random join code is taken
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -70,10 +134,10 @@ groupsRouter.post("/groups", requireWallet, async (req, res) => {
       name: body.name,
       joinCode: randomJoinCode(),
       adminWallet: wallet,
-      groupPda: body.groupPda ?? null,
-      groupSeed: body.groupSeed ?? null,
+      groupPda,
+      groupSeed,
       createSignature: body.createSignature ?? null,
-      rules: body.rules,
+      rules,
       blocklist: body.blocklist ?? DEFAULT_BLOCKLIST,
       members: [{ wallet, displayName: body.displayName, joinedAt: now, stakedLamports: 0, stakeSignatures: [] }],
       createdAt: now,
@@ -131,7 +195,36 @@ groupsRouter.post("/groups/:groupId/stakes", requireWallet, async (req, res) => 
   const member = group.members.find((m) => m.wallet === wallet);
   if (!member) throw new ApiError(403, "NOT_A_MEMBER", "Join the group before staking");
 
-  // Recording the same transaction twice must not double the stake
+  const chain = getChain();
+  if (chain) {
+    // The stake lives on-chain: record what the Member account says, not what the request says
+    const pda = group.groupPda;
+    if (!pda) throw new ApiError(409, "GROUP_NOT_ON_CHAIN", "This group has no on-chain address");
+    if (chain instanceof FakeChain) {
+      const existing = (await chain.fetchMembers(pda, [wallet])).get(wallet);
+      if (!existing) {
+        try {
+          chain.joinAndStake(pda, wallet, body.lamports); // mock: join_and_stake on the user's behalf
+        } catch (e) {
+          if (e instanceof FakeChainError) throw new ApiError(409, "CHAIN_REJECTED", e.message);
+          throw e;
+        }
+      }
+    }
+    const onchain = await fetchWithRetry(async () => (await chain.fetchMembers(pda, [wallet])).get(wallet) ?? null);
+    if (!onchain) throw new ApiError(409, "STAKE_NOT_FOUND", "No on-chain stake found for your wallet in this group");
+    await groups().updateOne(
+      { _id: groupId, "members.wallet": wallet },
+      {
+        $set: { "members.$.stakedLamports": onchain.deposited, "members.$.onchain": onchain },
+        $addToSet: { "members.$.stakeSignatures": body.signature },
+      },
+    );
+    res.json({ ok: true });
+    return;
+  }
+
+  // CHAIN_MODE=off: self-reported. Recording the same transaction twice must not double the stake
   if (!member.stakeSignatures.includes(body.signature)) {
     await groups().updateOne(
       { _id: groupId, members: { $elemMatch: { wallet, stakeSignatures: { $ne: body.signature } } } },

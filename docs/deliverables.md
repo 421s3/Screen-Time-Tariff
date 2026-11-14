@@ -5,7 +5,7 @@
 **Deadline:** Sunday, November 15, 11:00 AM MST. **Aim to submit by 10:00 AM.**
 **Workflow:** Each developer works on their own branch (`sh-<name>`) and opens PRs into `main` at each checkpoint. See `CLAUDE.md` for the full plan.
 
-**Payout model (decided): immediate redistribution.** When a member goes over their allowance, each `slash` pays the tariff straight from their stake to the other members' wallets. At the end of the period, everyone withdraws what's left of their own stake. There is no winner settlement. (Winner-takes-pool is a stretch goal only if Dev 2 finishes early.)
+**Payout model (decided): winner-takes-pool.** When a member goes over their allowance, each `slash` moves the tariff from their stake into the group's penalty pool (it stays in the vault). After the period ends, the backend calls `settle`: the staked member with the **lowest blocked screen time** wins the whole pool; exact ties split it. Then everyone withdraws their remaining stake plus any prize. See `docs/contract.md` sections 4 and 6.
 
 **Period:** configurable. One day normally; a few minutes in **demo mode** (e.g. 1-minute allowance, 0.01 SOL/min).
 
@@ -92,7 +92,7 @@
 
 4. ⭐ **Slashing**
    - `slash`: callable only by the oracle key.
-   - Pays the amount (in lamports) from the member's stake to the other members' wallets, split evenly.
+   - Moves the charge from the member's stake into the group's penalty pool; `settle` later pays the pool to the winner(s).
    - Capped at the member's remaining stake.
    - **No double charges:** `slash` takes the member's new *total* charged so far; the program rejects it unless it's higher than the stored total, and only pays the difference.
 
@@ -110,7 +110,7 @@
 ### Checkpoints
 
 - **CP1:** Program compiles; group creation and staking work on devnet.
-- **CP2:** Backend can submit a real `slash` and the other members' balances go up.
+- **CP2:** Backend can submit a real `slash` and the group's penalty pool goes up.
 - **CP3:** Withdraw, tests above passing, edge cases.
 - **CP4:** Stable program ID and IDL, documented transactions, final demo check.
 
