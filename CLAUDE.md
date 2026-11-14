@@ -57,7 +57,7 @@ This is what qualifies us for Best Use of Solana, and it's the riskiest part. St
 - **Instructions** (built by Xayden on `sh-xayden`; full spec in `docs/contract.md` section 6)
   - `create_group(...)`, `join_and_stake(amount)`: signed by the user.
   - `slash(total_minutes_over)`: **oracle only.** Cumulative minutes, so resends charge nothing. Moves the charge from the member's balance into the pool.
-  - `settle()`: **oracle only**, once, after the period ends, with the winners' Member accounts. Splits the pool among them.
+  - `settle()`: **oracle only**, once, after the period ends and **before `period_end + grace_secs`** (after that it fails with `GraceOver` and only `emergency_refund` works), with the winners' Member accounts. Splits the pool among them.
   - `withdraw()`: after settle, each member takes their balance (unspent stake + prize). `emergency_refund()` returns deposits if the oracle never settles.
 - **Why it's trustworthy:** the backend can only move stake into the pool and award the pool to group members. It can't keep or drain the money.
 
@@ -183,7 +183,7 @@ Mainnet and real money; a tamper-proof tracker (missed check-ins are the only sa
 ### Still open
 
 1. **Who owns the Anchor program?** Whoever is most comfortable with Rust; start immediately.
-2. **Program ID:** after Dev 2's first devnet deploy. Record it in `docs/contract.md` section 6 and the `.env.example` files.
+2. **Program ID:** `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi` is reserved (in `docs/contract.md` section 6) but not deployed to devnet yet. Put it in the `.env.example` files once it's live.
 3. **Demo laptops:** pick two, install Phantom on both, fund them from the devnet faucet, and test TikTok tab titles in the browser you'll demo with.
 
 ## Hard deadline
