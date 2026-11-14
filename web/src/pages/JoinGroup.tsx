@@ -54,8 +54,14 @@ export function JoinGroup() {
               onChange={(e) => setDisplayName(e.target.value)}
             />
           </label>
+          <p className="text-xs text-white/50">
+            Groups hold up to 8 members, and joining closes once the creator starts the session.
+          </p>
           {USE_MOCK && (
-            <p className="text-xs text-amber-200">Demo mode: use invite code TAX42Z.</p>
+            <p className="text-xs text-amber-200">
+              Demo mode: use invite code TAX42Z. The demo race is already running, so create a
+              group (or press Restart demo after creating one) to try joining before the start.
+            </p>
           )}
         </Card>
         {mutation.isError && <ErrorBox message={(mutation.error as Error).message} />}

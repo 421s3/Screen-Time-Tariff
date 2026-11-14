@@ -14,8 +14,4 @@ export default defineConfig({
       globals: { Buffer: true, process: true, global: true },
     }),
   ],
-  server: {
-    // mockApi imports ../docs/mock-state.json from the repo root.
-    fs: { allow: ['..'] },
-  },
 })

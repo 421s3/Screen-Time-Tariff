@@ -1,15 +1,23 @@
-// Contract with the backend: see ../docs/contract.md (section 4, GET /groups/:id/state).
-// If a type here changes, tell the backend devs. Amounts are lamports, times are unix ms.
+// Contract with the backend for GET /groups/:id/state.
+// MECHANIC: everyone pays the same entry stake; lowest total screen time at the end
+// of the session takes the whole pot (ties split it). See web/MECHANIC_CHANGE.md for
+// the diff against docs/contract.md. Amounts are lamports, times are unix ms.
 
 export type Blocklist = {
   processes: { match: string; label: string }[]
   titles: { match: string; label: string }[]
 }
 
+export type SessionPreset = 'demo' | 'day' | 'week' | 'month'
+
 export type Rules = {
-  allowanceMinutes: number
-  tariffLamportsPerMinute: number
+  stakeLamports: number // fixed entry stake, same for everyone
+  sessionPreset: SessionPreset
+  sessionMs: number // length of the session once started
+  maxMembers: number // 8
 }
+
+export type GroupStatus = 'upcoming' | 'active' | 'ended' | 'settled'
 
 export type Group = {
   groupId: string
@@ -17,9 +25,10 @@ export type Group = {
   joinCode: string
   groupPda: string
   programId: string
-  status: 'upcoming' | 'active' | 'ended'
-  periodStart: number
-  periodEnd: number
+  creatorWallet: string
+  status: GroupStatus
+  periodStart: number | null // null until the creator presses Start
+  periodEnd: number | null
   demoMode: boolean
   rules: Rules
   blocklist: Blocklist
@@ -28,60 +37,65 @@ export type Group = {
 export type Member = {
   wallet: string
   displayName: string
+  joinedAt: number
+  staked: boolean
   stakedLamports: number
-  slashedLamports: number
-  receivedLamports: number
-  remainingLamports: number
-  withdrawn: boolean
+  rank: number | null // 1 = least screen time; ties share a rank; null = not in the race
   usage: {
+    totalSeconds: number // blockedSeconds + offlineSeconds, this is what's ranked
     blockedSeconds: number
-    blockedMinutes: number
-    minutesOver: number
-    minutesCharged: number
-    offlineMinutes: number
+    offlineSeconds: number // missed tracker check-ins count as screen time
     byApp: { app: string; seconds: number }[]
   }
   current: { app: string; matchType: 'process' | 'title'; since: number } | null
   tracker: { paired: boolean; online: boolean; lastSeenAt: number | null }
 }
 
-export type LeaderboardEntry = {
-  wallet: string
-  displayName: string
-  blockedMinutes: number
-  rank: number
+export type RankEventKind = 'session_started' | 'took_lead' | 'passed' | 'session_ended'
+
+export type RankEvent = {
+  eventId: string
+  kind: RankEventKind
+  wallet: string | null // who moved up (null for session events)
+  displayName: string | null
+  otherWallet: string | null // who they passed
+  otherDisplayName: string | null
+  newRank: number | null
+  roast: string | null // Gemini, optional
+  createdAt: number
 }
 
-export type Penalty = {
-  penaltyId: string
-  wallet: string
-  displayName: string
-  app: string
-  minutes: number
-  lamports: number
-  recipients: { wallet: string; displayName: string; lamports: number }[]
-  status: 'pending' | 'sent' | 'confirmed' | 'failed'
-  signature: string | null
+export type SessionResult = {
+  winners: { wallet: string; displayName: string; payoutLamports: number }[]
+  potLamports: number
+  signature: string | null // settle transaction
   explorerUrl: string | null
-  roast: string | null
-  createdAt: number
+  settledAt: number | null
 }
 
 export type GroupState = {
   serverTime: number
   group: Group
-  members: Member[]
-  leaderboard: LeaderboardEntry[]
-  penalties: Penalty[]
-  totals: { stakedLamports: number; paidOutLamports: number }
+  members: Member[] // sorted by rank, then unstaked members
+  events: RankEvent[] // newest first, max 50
+  totals: { potLamports: number; stakedMembers: number }
+  result: SessionResult | null // set once the session is settled
 }
 
-// Inputs for the forms (the real request bodies are in contract.md).
 export type CreateGroupInput = {
   name: string
   displayName: string
-  allowanceMinutes: number
-  tariffLamportsPerMinute: number
-  periodMinutes: number
+  stakeLamports: number
+  sessionPreset: SessionPreset
   blocklist: Blocklist
 }
+
+export const SESSION_PRESETS: { id: SessionPreset; label: string; ms: number }[] = [
+  { id: 'demo', label: 'Demo (90 s)', ms: 90_000 },
+  { id: 'day', label: '1 day', ms: 24 * 60 * 60_000 },
+  { id: 'week', label: '1 week', ms: 7 * 24 * 60 * 60_000 },
+  { id: 'month', label: '1 month (30 days)', ms: 30 * 24 * 60 * 60_000 },
+]
+
+export const MAX_MEMBERS = 8
+export const MIN_MEMBERS_TO_START = 2

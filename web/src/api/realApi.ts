@@ -45,5 +45,6 @@ export const realApi: Api = {
   createGroup: () => Promise.reject(notYet('Creating a group')),
   joinGroup: () => Promise.reject(notYet('Joining a group')),
   recordStake: () => Promise.reject(notYet('Staking')),
+  startSession: () => Promise.reject(notYet('Starting the session')),
   startPairing: () => Promise.reject(notYet('Pairing a tracker')),
 }

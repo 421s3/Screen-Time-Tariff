@@ -21,7 +21,39 @@ export function shortAddr(addr: string): string {
   return addr.length > 10 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr
 }
 
+/** Screen time: "1h 05m", "12m 30s", "45s". */
+export function fmtDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  if (m > 0) return `${m}m ${String(sec).padStart(2, '0')}s`
+  return `${sec}s`
+}
+
+export function ordinal(n: number): string {
+  const v = n % 100
+  const suffix = v >= 11 && v <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
+  return `${n}${suffix}`
+}
+
+/** Countdown that also handles days, for 1 week / 1 month sessions. */
 export function fmtCountdown(ms: number): string {
+  if (ms > 24 * 60 * 60_000) {
+    const d = Math.floor(ms / (24 * 60 * 60_000))
+    const h = Math.floor((ms % (24 * 60 * 60_000)) / 3_600_000)
+    return `${d}d ${h}h`
+  }
+  if (ms >= 3_600_000) {
+    const h = Math.floor(ms / 3_600_000)
+    const m = Math.floor((ms % 3_600_000) / 60_000)
+    return `${h}h ${String(m).padStart(2, '0')}m`
+  }
+  return fmtClock(ms)
+}
+
+function fmtClock(ms: number): string {
   if (ms <= 0) return '0:00'
   const total = Math.floor(ms / 1000)
   const m = Math.floor(total / 60)

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { toast } from 'sonner'
 import { api } from '../api'
-import type { Blocklist } from '../types'
+import { USE_MOCK } from '../config'
+import { SESSION_PRESETS, type Blocklist, type SessionPreset } from '../types'
 import { parseSolToLamports } from '../lib/format'
 import { Card, ErrorBox, WalletGate, btnPrimary, inputCls } from '../components/ui'
 
@@ -32,34 +33,28 @@ const ALL_ITEMS = [
 
 export function CreateGroup() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { publicKey } = useWallet()
   const [name, setName] = useState('Finals Week Survivors')
   const [displayName, setDisplayName] = useState('')
-  const [allowance, setAllowance] = useState('60')
-  const [tariffSol, setTariffSol] = useState('0.01')
-  const [periodMinutes, setPeriodMinutes] = useState('1440')
+  const [stakeSol, setStakeSol] = useState('0.5')
+  const [preset, setPreset] = useState<SessionPreset>(USE_MOCK ? 'demo' : 'day')
   const [blocked, setBlocked] = useState<Set<string>>(
     () => new Set(ALL_ITEMS.map((i) => i.match)),
   )
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const tariff = parseSolToLamports(tariffSol)
-      const allowanceMinutes = Number(allowance)
-      const period = Number(periodMinutes)
+      const stakeLamports = parseSolToLamports(stakeSol)
       if (!name.trim() || !displayName.trim()) throw new Error('Enter a group name and your name.')
-      if (!Number.isInteger(allowanceMinutes) || allowanceMinutes < 0)
-        throw new Error('Allowance must be a whole number of minutes.')
-      if (tariff === null) throw new Error('Tariff must be more than 0 SOL.')
-      if (!Number.isInteger(period) || period <= 0)
-        throw new Error('Period must be a whole number of minutes.')
+      if (stakeLamports === null) throw new Error('The entry stake must be more than 0 SOL.')
+      if (blocked.size === 0) throw new Error('Pick at least one app or site to block.')
       return api.createGroup(
         {
           name: name.trim(),
           displayName: displayName.trim(),
-          allowanceMinutes,
-          tariffLamportsPerMinute: tariff,
-          periodMinutes: period,
+          stakeLamports,
+          sessionPreset: preset,
           blocklist: {
             processes: DEFAULT_BLOCKLIST.processes.filter((p) => blocked.has(p.match)),
             titles: DEFAULT_BLOCKLIST.titles.filter((t) => blocked.has(t.match)),
@@ -69,6 +64,7 @@ export function CreateGroup() {
       )
     },
     onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['state'] })
       toast.success(`Group created. Invite code: ${res.joinCode}`)
       navigate(`/group/${res.groupId}/stake`)
     },
@@ -96,7 +92,7 @@ export function CreateGroup() {
             <span className="text-sm text-white/70">Group name</span>
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="space-y-1 sm:col-span-2">
+          <label className="space-y-1">
             <span className="text-sm text-white/70">Your display name</span>
             <input
               className={inputCls}
@@ -106,32 +102,40 @@ export function CreateGroup() {
             />
           </label>
           <label className="space-y-1">
-            <span className="text-sm text-white/70">Daily allowance (minutes)</span>
-            <input
-              className={inputCls}
-              inputMode="numeric"
-              value={allowance}
-              onChange={(e) => setAllowance(e.target.value)}
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="text-sm text-white/70">Tariff (SOL per minute over)</span>
+            <span className="text-sm text-white/70">Entry stake (SOL, same for everyone)</span>
             <input
               className={inputCls}
               inputMode="decimal"
-              value={tariffSol}
-              onChange={(e) => setTariffSol(e.target.value)}
+              value={stakeSol}
+              onChange={(e) => setStakeSol(e.target.value)}
             />
           </label>
-          <label className="space-y-1 sm:col-span-2">
-            <span className="text-sm text-white/70">Challenge length (minutes; 1440 = one day)</span>
-            <input
-              className={inputCls}
-              inputMode="numeric"
-              value={periodMinutes}
-              onChange={(e) => setPeriodMinutes(e.target.value)}
-            />
-          </label>
+        </Card>
+
+        <Card>
+          <p className="mb-3 font-semibold">Session length</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup">
+            {SESSION_PRESETS.map((p) => (
+              <button
+                type="button"
+                key={p.id}
+                role="radio"
+                aria-checked={preset === p.id}
+                onClick={() => setPreset(p.id)}
+                className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                  preset === p.id
+                    ? 'border-violet-400 bg-violet-500/30 text-white'
+                    : 'border-white/15 text-white/60 hover:bg-white/10'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-white/40">
+            The clock starts when you press Start on the dashboard. Joining closes then.
+            {USE_MOCK && ' Demo mode runs every session for 90 seconds.'}
+          </p>
         </Card>
 
         <Card>
@@ -157,7 +161,8 @@ export function CreateGroup() {
             })}
           </div>
           <p className="mt-2 text-xs text-white/40">
-            Games match by process name; sites match by browser tab title.
+            Games match by process name; sites match by browser tab title. Time on these adds up;
+            lowest total at the end wins the pot.
           </p>
         </Card>
 

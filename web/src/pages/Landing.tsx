@@ -10,18 +10,19 @@ export function Landing() {
     <div className="grid gap-6 md:grid-cols-[1.4fr_1fr]">
       <Card className="flex flex-col justify-center gap-4 p-8">
         <h2 className="text-3xl font-extrabold leading-tight sm:text-4xl">
-          Screen-time limits are free to ignore.
-          <span className="block text-violet-300">We put a price on them.</span>
+          Stake in. Log off.
+          <span className="block text-violet-300">Lowest screen time takes the pot.</span>
         </h2>
         <p className="text-white/70">
-          Stake devnet SOL with your friends. Every minute you spend over your limit on TikTok,
-          YouTube, Valorant, or League is a tariff, paid on-chain to the rest of your group.
+          Everyone in your group puts in the same devnet SOL. Time on TikTok, YouTube, Valorant,
+          League, and the rest of the blocklist adds up over the session. When the clock runs
+          out, whoever spent the least time wins the whole pot, paid out on-chain.
         </p>
         <ol className="list-inside list-decimal space-y-1 text-sm text-white/60">
           <li>Connect Phantom (devnet)</li>
-          <li>Create a group or join one with a code</li>
-          <li>Stake SOL and pair the desktop tracker</li>
-          <li>Watch the penalties roll in</li>
+          <li>Create a group (pick the stake and session length) or join with a code</li>
+          <li>Pay the entry stake and pair the desktop tracker</li>
+          <li>The creator presses Start. Lowest total at the end wins.</li>
         </ol>
         {USE_MOCK && (
           <p className="text-sm text-amber-200">
@@ -34,7 +35,7 @@ export function Landing() {
         <Card className="flex items-center gap-4">
           <Mascot size={80} />
           <p className="text-sm text-white/70">
-            Meet Tariff Tom. He shows up every time someone pays the tax.
+            Meet Tariff Tom. He shows up every time someone takes the lead.
           </p>
         </Card>
         {connected ? (

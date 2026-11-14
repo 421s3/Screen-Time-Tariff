@@ -118,38 +118,32 @@ export function WalletGate({
   return <>{children}</>
 }
 
-export function UsageBar({
-  usedMinutes,
-  allowanceMinutes,
+/** Screen time relative to the group's highest total (shortest bar = currently winning). */
+export function TimeBar({
+  seconds,
+  maxSeconds,
+  leading,
 }: {
-  usedMinutes: number
-  allowanceMinutes: number
+  seconds: number
+  maxSeconds: number
+  leading: boolean
 }) {
-  const limit = Math.max(1, allowanceMinutes)
-  const pct = Math.min(100, (usedMinutes / limit) * 100)
-  const over = usedMinutes > allowanceMinutes
+  const pct = maxSeconds > 0 ? Math.min(100, (seconds / maxSeconds) * 100) : 0
   return (
-    <div>
-      <div className="flex justify-between text-xs text-white/60">
-        <span>
-          {usedMinutes} min / {allowanceMinutes} min allowed
-        </span>
-        {over && <span className="text-red-300">{usedMinutes - allowanceMinutes} over</span>}
-      </div>
+    <div
+      className="h-2.5 overflow-hidden rounded-full bg-white/10"
+      role="meter"
+      aria-label="Screen time relative to the group's highest"
+      aria-valuemin={0}
+      aria-valuemax={maxSeconds}
+      aria-valuenow={seconds}
+    >
       <div
-        className="mt-1 h-2.5 overflow-hidden rounded-full bg-white/10"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={allowanceMinutes}
-        aria-valuenow={usedMinutes}
-      >
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            over ? 'bg-red-400' : pct > 75 ? 'bg-amber-300' : 'bg-emerald-400'
-          }`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+        className={`h-full rounded-full transition-all duration-700 ${
+          leading ? 'bg-emerald-400' : pct > 80 ? 'bg-red-400' : 'bg-amber-300'
+        }`}
+        style={{ width: `${pct}%` }}
+      />
     </div>
   )
 }
