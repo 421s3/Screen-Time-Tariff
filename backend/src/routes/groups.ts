@@ -25,6 +25,7 @@ const blocklistInput = z.object({
   processes: z.array(blockEntry).default([]),
   titles: z.array(blockEntry).default([]),
   browsers: z.array(z.string().trim().min(1)).optional(),
+  steamGames: z.boolean().optional(),
 });
 
 const rulesInput = z

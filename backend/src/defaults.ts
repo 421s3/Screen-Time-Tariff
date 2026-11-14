@@ -5,9 +5,10 @@ export const DEFAULT_BLOCKLIST: Blocklist = {
   processes: [
     { match: "VALORANT-Win64-Shipping.exe", label: "Valorant" },
     { match: "League of Legends.exe", label: "League of Legends" },
-    { match: "steam.exe", label: "Steam" },
     { match: "Discord.exe", label: "Discord" },
   ],
+  // Steam-launched games, not the Steam client. A group can still list steam.exe in processes.
+  steamGames: true,
   titles: [
     { match: "TikTok", label: "TikTok" },
     { match: "YouTube", label: "YouTube" },
