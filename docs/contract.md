@@ -82,6 +82,8 @@ Public. Tells the dashboard which program and oracle to use.
 
 ### `POST /groups` (dashboard, `X-Wallet` = creator)
 Called **after** the creator's `create_group` transaction confirms.
+
+**Until the program is deployed, `groupPda`, `groupSeed`, and `createSignature` are optional**, so groups can be created for testing without a transaction. They come back as `null` in `/groups/join` and `/state`. `blocklist` is also optional; the backend uses the default list from section 5. Blocklist entries may be `{ match, label }` objects or plain strings (label = match).
 ```json
 // request
 {
@@ -129,8 +131,8 @@ type GroupState = {
     groupId: string;
     name: string;
     joinCode: string;
-    groupPda: string;
-    programId: string;
+    groupPda: string | null;            // null until the program is deployed
+    programId: string | null;           // null until the program is deployed
     status: "upcoming" | "active" | "ended";
     periodStart: number;
     periodEnd: number;
