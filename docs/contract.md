@@ -54,10 +54,13 @@ Tracker
 POST /pair/complete {code} ─────▶ trackerToken
 GET  /tracker/config ───────────▶ blocklist, intervals
 POST /usage  (every ~30 s) ─────▶ stores usage
-                                  worker: over limit? ──────▶ slash (oracle signs)
-                                                             SOL → other members' wallets
+                                  worker: over limit? ──────▶ slash(total minutes over) (oracle signs)
+                                                             stake → penalty pool (SOL stays in vault)
 Dashboard polls GET /groups/:id/state every 2–3 s
-withdraw (user signs, after period end) ───────────────────▶ remaining stake → user
+                                  period over: ─────────────▶ settle(winners) (oracle signs, before
+                                                             period_end + grace_secs) pool → winners
+withdraw (user signs, after settle) ───────────────────────▶ unspent stake + winnings → user
+(only if never settled) emergency_refund after period_end + grace_secs ▶ original deposit → user
 ```
 
 ---
@@ -300,7 +303,7 @@ Matching rules (these follow the tracker's implementation in `tracker/blocklist.
 
 ## 6. Solana program (Dev 2)
 
-Program name: `screen_time_tariff`. Anchor 0.31.1. Program ID: **TBD after first deploy** (put it here and in every `.env.example`). IDL: `program/idl/screen_time_tariff.json`.
+Program name: `screen_time_tariff`. Anchor 0.31.1. Program ID: `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi` (**reserved, not deployed to devnet yet**; put it in every `.env.example` once it's live). IDL: `program/idl/screen_time_tariff.json`, TypeScript types: `program/idl/screen_time_tariff.ts`.
 
 **Payout model: winner-takes-pool.** `slash` moves a member's penalty from their stake into the group's penalty pool; the SOL stays in the vault. After the period ends the oracle calls `settle` with the winners, who split the pool. Then every member withdraws their unspent stake plus any prize.
 
@@ -324,7 +327,7 @@ pub struct Group {
     pub allowance_minutes: u32,
     pub tariff_lamports_per_min: u64,
     pub period_end: i64,                 // unix seconds
-    pub grace_secs: i64,                 // emergency_refund opens at period_end + grace_secs
+    pub grace_secs: i64,                 // > 0; settle window is [period_end, period_end + grace_secs)
     pub member_count: u32,               // max 8
     pub total_staked: u64,               // lamports, sum of deposits
     pub penalty_pool: u64,               // lamports slashed so far, held in the vault until settle
@@ -351,25 +354,39 @@ There is no `period_start` or member list on-chain. Find members with `getProgra
 ### Instructions
 | Instruction | Signer | Args | Effect |
 |---|---|---|---|
-| `create_group` | admin | `group_id: u64, oracle: Pubkey, allowance_minutes: u32, tariff_lamports_per_min: u64, period_end: i64, grace_secs: i64` | Creates `Group` and funds the vault with the rent-exempt minimum. Rejects if `period_end` is in the past or the tariff is 0. |
+| `create_group` | admin | `group_id: u64, oracle: Pubkey, allowance_minutes: u32, tariff_lamports_per_min: u64, period_end: i64, grace_secs: i64` | Creates `Group` and funds the vault with the rent-exempt minimum. Rejects (`InvalidRules`) if `period_end` is in the past, the tariff is 0, or `grace_secs` is 0. |
 | `join_and_stake` | member wallet | `amount: u64` | Creates `Member`, transfers `amount` wallet → vault. Rejects if the group is full (8) or the period has ended. |
 | `slash` | **oracle only** | `total_minutes_over: u32` | **Cumulative** minutes over the allowance this period. Charges `(total_minutes_over - minutes_charged) * tariff`, capped at `balance`, from `balance` into `penalty_pool`. Resending the same or a lower total is a no-op (succeeds, charges nothing). Allowed until the group is settled. |
-| `settle` | **oracle only** | — (remaining accounts: winners' `Member` PDAs, writable, sorted by strictly ascending pubkey) | Once, after `period_end`. Splits `penalty_pool` equally among the winners; the remainder lamports go to the lowest pubkey. Required before anyone can `withdraw`. |
+| `settle` | **oracle only** | — (remaining accounts: winners' `Member` PDAs, writable, sorted by strictly ascending pubkey) | Once, only while `period_end <= now < period_end + grace_secs` (before: `PeriodNotOver`; after: `GraceOver`). Splits `penalty_pool` equally among the winners; the remainder lamports go to the lowest pubkey. Required before anyone can `withdraw`. |
 | `withdraw` | member wallet | — | After `settle`, once: pays `balance` vault → wallet. |
-| `emergency_refund` | member wallet | — | Only if the group is **not** settled and `now >= period_end + grace_secs`: pays back the original `deposited`, once. |
+| `emergency_refund` | member wallet | — | Only if the group is **not** settled and `now >= period_end + grace_secs` (the settle window has closed): pays back the original `deposited` (slashes are ignored), once. |
 
 The backend sends `slash(minutesCharged_after)` with whole minutes (contract §1); the program multiplies by the tariff. Lamports charged = the `Slashed` event's `lamports` field, or the change in `Member.total_slashed`.
 
-**Who wins (backend rule):** at `settle`, winners are the members with the fewest `minutesOver` for the period (ties all win). If nobody was slashed the pool is 0 and `settle` still has to run so members can withdraw.
+**Settle deadline (backend rule):** the backend **must** call `settle` before `period_end + grace_secs` (read both from the `Group` account; they're unix **seconds**, so compare with `Date.now() / 1000`). After that, `settle` fails with `GraceOver` and the only way out is `emergency_refund`, which returns every original deposit and voids all penalties. Settle as soon as `period_end` passes, and retry until it confirms. If nobody was slashed the pool is 0 and `settle` still has to run so members can withdraw.
+
+The two windows never overlap: a refund returns the full deposit, including lamports already counted in the pool, so settling after a refund would pay the same lamports twice.
+
+**Who wins (backend rule, decided):** the member(s) with the **lowest `blockedSeconds`** for the period (raw blocked screen time, including `"Tracker offline"` time from missed check-ins). Exact ties all win and split the pool evenly. The backend computes this and passes the winners' `Member` PDAs to `settle`; the program doesn't check the rule, only that winners are members of this group.
+
+**Demo `grace_secs`:** `600` (10 minutes) for the main demo group, so the backend has plenty of time to settle and retry. For a separate refund demo, use a group with `grace_secs = 60` and don't settle it.
 
 ### Events
 `Joined { group, wallet, amount }`, `Slashed { group, wallet, minutes_charged, lamports, total_minutes_over, penalty_pool }`, `Settled { group, winner_count, pool }`, `Withdrawn { group, wallet, amount }`.
 
 ### Errors
-`Unauthorized`, `InvalidRules`, `ZeroAmount`, `PeriodOver`, `PeriodNotOver`, `GroupFull`, `BadWinners`, `AlreadySettled`, `NotSettled`, `GraceNotOver`, `AlreadyWithdrawn`, `Math`.
+| Code | Name | Code | Name |
+|---|---|---|---|
+| 6000 | `Unauthorized` | 6007 | `AlreadySettled` |
+| 6001 | `InvalidRules` | 6008 | `NotSettled` |
+| 6002 | `ZeroAmount` | 6009 | `GraceNotOver` |
+| 6003 | `PeriodOver` | 6010 | `AlreadyWithdrawn` |
+| 6004 | `PeriodNotOver` | 6011 | `Math` |
+| 6005 | `GroupFull` | 6012 | `GraceOver` (settle after `period_end + grace_secs`) |
+| 6006 | `BadWinners` | | |
 
 ### Fallback (if the program isn't ready by ~2 AM)
-Backend holds a vault keypair. Members send their stake to it with a plain transfer, and the backend's `slash()` sends plain transfers to the other members. Same API, same dashboard.
+Backend holds a vault keypair. Members send their stake to it with a plain transfer; the backend tracks the pool in its DB and, at the end, sends plain transfers: each member's unspent stake back, plus the pool to the winner(s). Same API, same dashboard.
 
 ---
 
