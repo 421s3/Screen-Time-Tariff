@@ -4,11 +4,11 @@
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-screen_time_tariff = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
-
 [programs.devnet]
-screen_time_tariff = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+screen_time_tariff = "GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi"
+
+[programs.localnet]
+screen_time_tariff = "GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi"
 
 [registry]
 url = "https://api.apr.dev"

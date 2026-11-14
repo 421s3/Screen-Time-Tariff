@@ -18,7 +18,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi");
 
 pub const MAX_MEMBERS: u32 = 8;
 
