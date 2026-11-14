@@ -9,7 +9,8 @@ import { groups, penalties, trackers } from "../db.js";
 import { ApiError } from "../errors.js";
 import type { Blocklist, MatchType, PenaltyStatus, SettlementStatus } from "../types.js";
 import { explorerUrlFor } from "../util.js";
-import { usageByWalletApp } from "./usage.js";
+import { OFFLINE_APP } from "./offline.js";
+import { blockedUsage, isStaked } from "./usage.js";
 
 export interface MemberState {
   wallet: string;
@@ -29,7 +30,7 @@ export interface MemberState {
     byApp: { app: string; seconds: number }[];
   };
   current: { app: string; matchType: MatchType; since: number } | null;
-  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null };
+  tracker: { paired: boolean; online: boolean; lastSeenAt: number | null; idle: boolean };
 }
 
 export interface PenaltyState {
@@ -70,6 +71,7 @@ export interface GroupState {
     rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
     blocklist: Blocklist;
     settlement: SettlementState | null;
+    settleDeadline: number | null; // ms; settle must happen before this, then emergency_refund opens
   };
   members: MemberState[];
   leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number; leading: boolean }[];
@@ -82,13 +84,12 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
   if (!group) throw new ApiError(404, "GROUP_NOT_FOUND", "No group with that id");
 
   const [usage, allPenalties, groupTrackers] = await Promise.all([
-    usageByWalletApp(group),
+    blockedUsage(group, now),
     penalties().find({ groupId }).sort({ createdAt: -1 }).toArray(),
     trackers().find({ groupId }).toArray(),
   ]);
   const confirmed = allPenalties.filter((p) => p.status === "confirmed");
   const { allowanceMinutes, tariffLamportsPerMinute, periodStart, periodEnd, demoMode } = group.rules;
-  const onChainKnown = config.chainMode !== "off";
 
   const members: MemberState[] = group.members.map((m) => {
     const byApp = usage
@@ -113,7 +114,7 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
     return {
       wallet: m.wallet,
       displayName: m.displayName,
-      staked: onChainKnown ? chain !== null : m.stakedLamports > 0,
+      staked: isStaked(m),
       stakedLamports,
       slashedLamports,
       receivedLamports,
@@ -124,11 +125,17 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
         blockedMinutes,
         minutesOver: Math.max(0, blockedMinutes - allowanceMinutes),
         minutesCharged: chain?.minutesCharged ?? paid.reduce((sum, p) => sum + p.minutes, 0),
-        offlineMinutes: 0, // missed check-ins are CP3
+        // Already included in blockedSeconds and byApp; shown separately so the UI can call it out
+        offlineMinutes: Math.floor((byApp.find((u) => u.app === OFFLINE_APP)?.seconds ?? 0) / 60),
         byApp,
       },
       current: online && tracker?.current ? tracker.current : null,
-      tracker: { paired: tracker !== undefined, online, lastSeenAt: tracker?.lastSeenAt ?? null },
+      tracker: {
+        paired: tracker !== undefined,
+        online,
+        lastSeenAt: tracker?.lastSeenAt ?? null,
+        idle: online && (tracker?.idle ?? false), // a stale flag from an offline tracker doesn't count
+      },
     };
   });
 
@@ -184,6 +191,7 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
             settledAt: settlement.settledAt,
           }
         : null,
+      settleDeadline: group.graceSecs ? periodEnd + group.graceSecs * 1000 : null,
     },
     members,
     leaderboard,

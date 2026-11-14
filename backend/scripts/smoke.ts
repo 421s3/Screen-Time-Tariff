@@ -20,6 +20,10 @@ const { sortByPubkeyBytes, splitPool } = await import("../src/chain/pda.js");
 const { computePenalty } = await import("../src/services/penalties.js");
 const { pickWinners } = await import("../src/services/settlement.js");
 const { capEvents, usageBudget } = await import("../src/services/usage.js");
+const { offlineSeconds, OFFLINE_APP } = await import("../src/services/offline.js");
+const { buildGroupState } = await import("../src/services/state.js");
+const { WINDOW_CLOSED } = await import("../src/services/settlement.js");
+const { ObjectId } = await import("mongodb");
 
 assert.equal(config.mongoDb, "screen-time-tariff-smoke", "refusing to run against a real database");
 
@@ -54,6 +58,13 @@ const newWallet = () => Keypair.generate().publicKey.toBase58();
   assert.deepEqual(sorted.map((w) => prizes.get(w)), [4, 3, 3]);
   assert.deepEqual(pickWinners(new Map([[w1, 50], [w2, 10], [w3, 10]])), sortByPubkeyBytes([w2, w3]));
   ok("winner rule: lowest seconds, ties split, remainder to lowest pubkey");
+
+  assert.deepEqual(offlineSeconds([], 0, 100_000, 120), { seconds: 0, lastAt: 0 }); // under the grace
+  assert.deepEqual(offlineSeconds([], 0, 300_000, 120), { seconds: 180, lastAt: 300_000 }); // never checked in
+  assert.deepEqual(offlineSeconds([100_000, 130_000], 0, 400_000, 120), { seconds: 150, lastAt: 400_000 }); // trailing gap
+  assert.deepEqual(offlineSeconds([200_000], 0, 250_000, 120), { seconds: 80, lastAt: 200_000 }); // leading gap
+  assert.deepEqual(offlineSeconds([10_000], 50_000, 40_000, 120), { seconds: 0, lastAt: 0 }); // empty window
+  ok("offlineSeconds: only silence beyond the grace counts, including before the first and after the last check-in");
 }
 
 // ---- API flow --------------------------------------------------------------
@@ -207,6 +218,13 @@ try {
   assert.deepEqual(r.body, { accepted: true, duplicate: true });
   ok("POST /usage (duplicate batch ignored)");
 
+  r = await call("POST", "/usage", { token: bobToken, body: { batchId: "bob-idle-0001", sentAt: Date.now(), idle: true, current: null, events: [] } });
+  assert.equal(byName(await state(groupId), "Bob").tracker.idle, true);
+  r = await call("POST", "/usage", { token: bobToken, body: { batchId: "bob-back-0001", sentAt: Date.now(), idle: false, current: null, events: [] } });
+  assert.equal(byName(await state(groupId), "Bob").tracker.idle, false);
+  assert.equal(byName(await state(groupId), "Carol").tracker.idle, false, "never paired");
+  ok("tracker.idle in /state follows the tracker's last batch");
+
   // CHAIN_MODE=off behavior: penalty calculated, not sent
   setChain(null);
   await runWorkerTick();
@@ -293,6 +311,28 @@ try {
   await report(await pair(zane, tieId), "Valorant", "process", 150);
   await runWorkerTick();
 
+  // Group 3: missed check-ins. Dana staked and paired; Eve joined but never staked.
+  const [dana, eve] = [newWallet(), newWallet()];
+  const offlineRules = { ...rules, periodEnd: rules.periodEnd + 10 * 60_000 }; // still running when group 1 settles
+  r = await call("POST", "/groups", { wallet: dana, body: { name: "Offline Group", displayName: "Dana", rules: offlineRules } });
+  const offlineId = r.body.groupId as string;
+  await call("POST", "/groups/join", { wallet: eve, body: { joinCode: r.body.joinCode, displayName: "Eve" } });
+  await call("POST", `/groups/${offlineId}/stakes`, { wallet: dana, body: { lamports: 100_000_000, signature: "s-dana" } });
+  const danaToken = await pair(dana, offlineId);
+  r = await call("POST", "/usage", { token: danaToken, body: { batchId: "dana-heartbeat-1", sentAt: Date.now(), idle: false, current: null, events: [] } });
+  assert.deepEqual(r.body, { accepted: true, duplicate: false });
+  const t0 = Date.now(); // Dana's last check-in is at or before this
+
+  // Group 4: refund demo, never settled by the backend
+  r = await call("POST", "/groups", { wallet: newWallet(), body: { name: "Refund Demo", displayName: "Finn", rules, autoSettle: false } });
+  const refundId = r.body.groupId as string;
+
+  // Group 5: short settle window that the backend will miss (it ends 2 min after group 1)
+  const lateRules = { ...rules, periodEnd: rules.periodEnd + 120_000 };
+  r = await call("POST", "/groups", { wallet: newWallet(), body: { name: "Late Group", displayName: "Gus", rules: lateRules, graceSecs: 60 } });
+  const lateId = r.body.groupId as string;
+  const latePda = (await state(lateId)).group.groupPda as string;
+
   // Settlement: move past the period end on both clocks
   const end = rules.periodEnd + config.settleDelayMs + 1000;
   fake.nowSec = () => Math.floor(end / 1000);
@@ -320,6 +360,45 @@ try {
   await runWorkerTick(end + 60_000);
   assert.equal((await state(groupId)).group.settlement.status, "confirmed");
   ok("settlement runs once");
+
+  assert.equal((await state(refundId)).group.settlement, null);
+  ok("autoSettle: false group is never settled (members use emergency_refund)");
+
+  // Missed check-ins: Dana's tracker goes silent for 5 minutes
+  config.enforceOffline = true;
+  try {
+    const t5 = t0 + 5 * 60_000;
+    const created = await runWorkerTick(t5).then(() =>
+      db.penalties().find({ groupId: new ObjectId(offlineId) }).toArray(),
+    );
+    assert.equal(created.length, 1, "one penalty for the offline time");
+    assert.equal(created[0]!.app, OFFLINE_APP);
+    assert.equal(created[0]!.minutes, 2, "3 offline minutes (300 s − 120 s grace) − 1 allowance");
+    assert.equal(created[0]!.status, "confirmed");
+    const os = await buildGroupState(new ObjectId(offlineId), t5);
+    const danaState = os.members.find((m) => m.displayName === "Dana")!;
+    const eveState = os.members.find((m) => m.displayName === "Eve")!;
+    assert.equal(danaState.usage.offlineMinutes, 3);
+    assert.equal(danaState.usage.byApp[0]?.app, OFFLINE_APP);
+    assert.ok(danaState.usage.blockedSeconds >= 180, "offline time counts as blocked time");
+    assert.equal(eveState.usage.blockedSeconds, 0, "unstaked members get no offline time");
+    assert.equal(os.group.settleDeadline, offlineRules.periodEnd + config.graceSecs * 1000);
+  } finally {
+    config.enforceOffline = false;
+  }
+  ok("missed check-ins: 5 silent minutes → 3 offline minutes → 2-minute 'Tracker offline' penalty; unstaked Eve unaffected");
+
+  // Settle window: the backend checks group 5 only after period end + 60 s grace
+  const lateEnd = lateRules.periodEnd + 61_000;
+  fake.nowSec = () => Math.floor(lateEnd / 1000);
+  await runWorkerTick(lateEnd);
+  const late = await state(lateId);
+  assert.equal(late.group.settlement.status, "failed");
+  assert.equal((await db.groups().findOne({ _id: new ObjectId(lateId) }))?.settlement?.lastError, WINDOW_CLOSED);
+  assert.equal((await fake.fetchGroup(latePda))?.settled, false, "settle was never sent");
+  await runWorkerTick(lateEnd + 60_000);
+  assert.equal((await state(lateId)).group.settlement.status, "failed", "not retried");
+  ok("settle window closed: settlement marked failed, not sent, not retried");
 
   r = await call("GET", "/groups/000000000000000000000000/state");
   assert.equal(r.status, 404);
