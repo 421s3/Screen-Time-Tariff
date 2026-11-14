@@ -135,6 +135,8 @@ Don't let the extras eat time from the core loop.
 
 ### Team roles (tentative)
 
+Detailed per-developer deliverables and checkpoint times are in `docs/deliverables.md`. Read it before starting work.
+
 Each developer owns one folder. Agree on the interfaces in `docs/contract.md` (endpoint formats, program accounts/instructions/seeds, units: **lamports everywhere**, timestamps in ms) before splitting up.
 
 | Dev | Area | Folder | Owns | First deliverable |
