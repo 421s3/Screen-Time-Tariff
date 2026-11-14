@@ -5,9 +5,9 @@ Winner-takes-pool vault for Solana devnet. See `programs/screen_time_tariff/src/
 ## Status
 
 - **Program ID:** `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi` (in `declare_id!`, `Anchor.toml`, and the IDL).
-- **NOT deployed to devnet yet.** The ID is reserved by the program keypair; nothing is live at that address until the first `anchor deploy`.
+- **Deployed to devnet** (upgradeable; upgrade authority `GzyMktrx9c5rU7W2JvkE1eSwEDjXxhJG9p49U1rTs5Z9`).
 - **IDL for other devs:** [`idl/screen_time_tariff.json`](idl/screen_time_tariff.json), TypeScript types: [`idl/screen_time_tariff.ts`](idl/screen_time_tariff.ts). Regenerate after any program change (see below).
-- **Tests:** 14 passing on a local validator.
+- **Tests:** 14 passing on a local validator; devnet smoke test below.
 
 ## Toolchain (WSL)
 
@@ -53,8 +53,25 @@ Usage is measured off-chain; the oracle supplies minutes-over and the winner lis
 
 ## Deployed (devnet)
 
-- Program ID: `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi`, **not deployed yet**.
-- Transactions: _none yet; Explorer links (`?cluster=devnet`) go here after the first devnet run._
+- Program: [`GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi`](https://explorer.solana.com/address/GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi?cluster=devnet)
+- Deploy: [tx](https://explorer.solana.com/tx/5WYs4KRRoz8EB5ZwNFKyXZ9MeRkuucToSY4Ue15MrZfkbyg98X27becyogNoU7X2dJNhBbaYtkbFT4ktpnLa6Mff?cluster=devnet) (slot 522347364; on-chain bytecode matches the local build)
+
+### Smoke-test group (devnet)
+
+Rules: allowance 1 minute, tariff 10,000,000 lamports/min (0.01 SOL), `grace_secs` 600, oracle `E3rfdAa2KxeqEcAb9AnxRPS3XdamFzBVdYF2vzYSSSAy`. Admin and only member: `GzyMktrx9c5rU7W2JvkE1eSwEDjXxhJG9p49U1rTs5Z9`, staked 0.05 SOL.
+
+| What | Value |
+|---|---|
+| `group_id` | `1794698171` |
+| Group PDA | [`DdW4eH87XyUA4L2DW7WLBZ9uua5iAMFzhqPDUYk8PhCH`](https://explorer.solana.com/address/DdW4eH87XyUA4L2DW7WLBZ9uua5iAMFzhqPDUYk8PhCH?cluster=devnet) |
+| Vault PDA | [`BfnPuVbRjkaeuYiWroy3qHRXj8PXRun2oVBopMa6wAET`](https://explorer.solana.com/address/BfnPuVbRjkaeuYiWroy3qHRXj8PXRun2oVBopMa6wAET?cluster=devnet) |
+| Member PDA | `7UiNtKEgUcRmv6UJeDTom65FHfb6DQRU4SCbf2bVXKpo` |
+| `period_end` | `1794699071` (2026-11-14 16:31:11 MST) |
+| Settle deadline | `1794699671` (2026-11-14 16:41:11 MST) |
+| `create_group` | [tx](https://explorer.solana.com/tx/isZbgK4r3uqkqwV591XKEJxpVgRttm8BjuXzcBr7SNMeMwuZ2UXXoS7VJxL6EKhyvSoyKtWLKTVEmyDVsZfVyNh?cluster=devnet) |
+| `join_and_stake` (0.05 SOL) | [tx](https://explorer.solana.com/tx/HPj7mmdowTXSWt2Ht5waeQEjjViMHxW2JGzUzgCiBRXQLwMwnSMTE8L37ox18FYrTmXhEm4Xs1xenXxtiimrcwH?cluster=devnet) |
+
+Vault after staking: 50,650,240 lamports = 0.05 SOL stake + 650,240 rent-exempt minimum (devnet's value for a 0-byte account).
 
 ## Build
 
