@@ -42,7 +42,7 @@ npm run dev               # http://localhost:4000/health → {"ok":true}
 | On-chain balances synced into `/state` | ✅ every worker tick |
 | Settlement after the period ends | ✅ lowest blocked time among staked members wins; ties split |
 | Stakes verified on-chain | ✅ in `mock` and `devnet` |
-| Missed check-ins, Gemini roasts | CP3 |
+| Missed check-ins | CP3 |
 
 Notes for teammates:
 - **Dashboard auth** is the `X-Wallet: <address>` header, not verified yet.

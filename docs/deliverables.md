@@ -42,13 +42,12 @@
    - Poll the backend every 2–3 seconds.
 
 5. ⭐ **Penalty feed**
-   - Who paid, for which app, how many minutes, how much, and who received it.
+   - Who paid, for which app, how many minutes, how much, and the new pool total.
    - Explorer link for each confirmed transaction.
-   - Gemini roast line when present.
 
 6. **End-of-period summary**
-   - Who paid how much to whom, and each member's final balance.
-   - Withdraw button for the remaining stake.
+   - Who won the pool, how much each member paid in, and each member's final balance.
+   - Withdraw button for the unspent stake plus any winnings (after settlement).
 
 7. **Polish**
    - Tax-collector mascot.
@@ -76,45 +75,61 @@
 
 ### Deliverables
 
-1. ⭐ **Setup**
-   - Initialize the Anchor project and pick/record the Anchor version.
-   - Deploy to devnet.
+1. ⭐ **Anchor program setup**
+   - Initialize and configure the Anchor project.
+   - Define and deploy the program to devnet.
    - **Publish the program ID, IDL, and PDA seeds early** (in `docs/contract.md`) for Devs 1 and 4, even before everything works.
 
-2. ⭐ **Group and members**
-   - `create_group`: group PDA storing admin, oracle authority (the backend's key), tariff rate, allowance, period end time.
-   - Member PDA per group and wallet: amount staked, total slashed.
+2. ⭐ **On-chain group management**
+   - Create a group PDA.
+   - Store the group's administrator, oracle authority, tariff rate, allowance, and challenge period.
+   - Implement membership accounts and necessary constraints.
 
 3. ⭐ **Staking and vault**
-   - Vault PDA per group, controlled only by the program.
-   - `join_and_stake(amount)`: signed by the member.
-   - No withdrawals before the period ends.
+   - Create a program-controlled vault PDA.
+   - Allow members to stake devnet SOL through signed transactions.
+   - Track individual deposits and available balances.
+   - Prevent unauthorized withdrawals.
 
-4. ⭐ **Slashing**
-   - `slash`: callable only by the oracle key.
-   - Moves the charge from the member's stake into the group's penalty pool; `settle` later pays the pool to the winner(s).
-   - Capped at the member's remaining stake.
-   - **No double charges:** `slash` takes the member's new *total* charged so far; the program rejects it unless it's higher than the stored total, and only pays the difference.
+4. ⭐ **Penalty accounting**
+   - Implement oracle-authorized penalty/slash instructions.
+   - Cap penalties at the member's remaining deposit.
+   - Prevent duplicate penalty charges.
+   - Preserve collected penalties inside the vault for settlement.
 
-5. ⭐ **Withdraw**
-   - After the period ends, each member can withdraw their remaining stake exactly once.
+5. ⭐ **Winner settlement**
+   - Support the lowest-verified-screen-time winner model.
+   - Allow the authorized oracle to submit the final result.
+   - Handle exact ties with deterministic reward splitting.
+   - Return each participant's unspent stake.
+   - Transfer forfeited penalties to the winner.
+   - Prevent repeated settlement or withdrawals.
 
-6. **Security** (mostly comes free with Anchor constraints)
-   - Check PDA seeds, account owners, and the oracle signer.
-   - No path for funds to leave the vault except to group members.
-   - Note in the README that usage data comes from the off-chain oracle (the backend).
+6. **Security**
+   - Validate account ownership, PDA seeds, authorities, and balances.
+   - Prevent unauthorized redistribution or vault draining.
+   - Enforce challenge status and end-time restrictions.
+   - Keep funds in the program-controlled vault.
+   - Document that the oracle supplies off-chain usage results.
 
-7. **Tests** (keep these; they catch money bugs)
-   - Create group, stake, valid slash, slash from the wrong key is rejected, repeated/lower total is rejected, withdraw.
+7. **Testing**
+   - Successful group creation.
+   - Successful deposits.
+   - Valid and invalid slashing.
+   - Insufficient-balance handling.
+   - Unauthorized transaction rejection.
+   - Winner settlement and ties.
+   - Duplicate-settlement prevention.
+   - Withdrawals and accounting invariants.
 
 ### Checkpoints
 
-- **CP1:** Program compiles; group creation and staking work on devnet.
-- **CP2:** Backend can submit a real `slash` and the group's penalty pool goes up.
-- **CP3:** Withdraw, tests above passing, edge cases.
-- **CP4:** Stable program ID and IDL, documented transactions, final demo check.
+- **CP1:** Anchor program compiles; group creation and staking work.
+- **CP2:** Program deployed to devnet; backend can submit a real penalty transaction.
+- **CP3:** Complete settlement, payouts, refunds, and security tests.
+- **CP4:** Stable program ID, IDL, documented transactions, and final demo verification.
 
-**Completion requirement:** Deposits and penalties can be verified on Solana Explorer, and members can withdraw their remaining stake.
+**Completion requirement:** Real devnet deposits and penalties can be verified on Solana Explorer, followed by a successful final payout.
 
 **Fallback:** if the program isn't working by ~2 AM, the backend uses a vault wallet it holds so the demo still works.
 
@@ -179,7 +194,7 @@
    - Generate and fund the devnet oracle keypair (in `.env` only, never committed).
 
 2. ⭐ **Collections**
-   - `users` (wallet, display name, tracker token), `groups` (on-chain address, rules, blocklist, join code), `usage_events`, `penalties` (minutes, lamports, signature, status, roast).
+   - `users` (wallet, display name, tracker token), `groups` (on-chain address, rules, blocklist, join code), `usage_events`, `penalties` (minutes, lamports, signature, status).
 
 3. ⭐ **Group and tracker APIs**
    - Create/get groups, invite codes, join.
@@ -197,10 +212,7 @@
    - Start with a swappable `slash()` that sends a plain devnet transfer, so the loop works before the program does.
    - Swap in Dev 2's Anchor `slash` once it's deployed; store signatures and status.
 
-6. **Gemini roasts**
-   - One short roast per penalty, stored with it. Fails quietly if the API is down.
-
-7. **Deployment**
+6. **Deployment**
    - Deploy to a reachable host (Vultr, AWS, Render, or Railway); ngrok from a laptop as fallback.
    - Deployment steps in the README.
 
@@ -208,7 +220,7 @@
 
 - **CP1:** API, Atlas, group endpoints, pairing, usage storage, penalties calculated (not sent yet).
 - **CP2:** Real tracker usage → tariff → real devnet transaction.
-- **CP3:** Anchor `slash` wired in, missed check-ins, roasts, `/state` complete.
+- **CP3:** Anchor `slash` wired in, missed check-ins, `/state` complete.
 - **CP4:** Deployed, end-to-end tested, demo freeze.
 
 **Completion requirement:** The tracker → backend → Solana → dashboard loop works without manually editing database records.
@@ -241,7 +253,7 @@ Times assume starting around 6 PM Saturday. Shift them if you start later, but k
 
 ## CP3 — Feature complete (~4 AM)
 
-- Anchor program in the loop, staking and withdraw, penalty feed with roasts, idle detection, retries.
+- Anchor program in the loop, staking and withdraw, penalty feed, idle detection, retries.
 - Full loop tested on two laptops.
 
 ## CP4 — Demo freeze (~8 AM)

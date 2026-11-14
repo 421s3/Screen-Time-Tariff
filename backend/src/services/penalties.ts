@@ -69,7 +69,6 @@ async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<
       signature: null,
       attempts: 0,
       lastError: null,
-      roast: null,
       createdAt: now,
       updatedAt: now,
     };

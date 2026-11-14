@@ -57,7 +57,7 @@ This is what qualifies us for Best Use of Solana, and it's the riskiest part. St
 - **Instructions** (built by Xayden on `sh-xayden`; full spec in `docs/contract.md` section 6)
   - `create_group(...)`, `join_and_stake(amount)`: signed by the user.
   - `slash(total_minutes_over)`: **oracle only.** Cumulative minutes, so resends charge nothing. Moves the charge from the member's balance into the pool.
-  - `settle()`: **oracle only**, once, after the period ends, with the winners' Member accounts. Splits the pool among them.
+  - `settle()`: **oracle only**, once, after the period ends and **before `period_end + grace_secs`** (after that it fails with `GraceOver` and only `emergency_refund` works), with the winners' Member accounts. Splits the pool among them.
   - `withdraw()`: after settle, each member takes their balance (unspent stake + prize). `emergency_refund()` returns deposits if the oracle never settles.
 - **Why it's trustworthy:** the backend can only move stake into the pool and award the pool to group members. It can't keep or drain the money.
 
@@ -89,14 +89,13 @@ Node.js + TypeScript + Express (set up in `backend/`). Host on Vultr, AWS, Rende
 - **Worker** (every `WORKER_INTERVAL_SEC`): new minutes over the allowance → `slash` transaction; syncs on-chain balances into the database; after the period ends, picks the winner and calls `settle`. Signed by the oracle keypair at `backend/keys/oracle.json` (gitignored, never committed). `CHAIN_MODE` = `off` / `mock` (in-memory copy of the program) / `devnet`.
 - **Missed check-ins:** if a tracker stops reporting during the period, that time counts as over the limit. This is the answer to "can't I just close the tracker?"
 - Read endpoints for the dashboard: group, members, today's usage, penalty feed.
-- **Gemini roasts:** one line per penalty, e.g. "Alice has paid 0.02 SOL in TikTok taxes. The algorithm thanks her."
 
 #### 4. Database (MongoDB Atlas)
 
 - `users`: wallet, display name, paired tracker ID.
 - `groups`: on-chain address, copy of rules, blocklist, join code.
 - `usage_events`: user, app, seconds, timestamp.
-- `penalties`: user, app, minutes, lamports, transaction signature, roast text, timestamp.
+- `penalties`: user, app, minutes, lamports, transaction signature, timestamp.
 
 #### 5. Web dashboard
 
@@ -111,7 +110,7 @@ Setup: two laptops on the projector, "Alice" and "Bob," in one group with **demo
 
 1. **~30 s, problem and pitch:** "Screen-time limits are free to ignore. We put a price on them."
 2. **~20 s, the group:** both stakes in the vault on Explorer; the blocklist with TikTok, YouTube, Valorant, League.
-3. **~75 s, live penalty:** Alice opens TikTok in Chrome → her usage bar fills → limit runs out → backend slashes → the pool shows "+0.01 SOL" with the mascot and a roast, and Bob is marked as winning → click through to Explorer. Leave it running so a second charge lands.
+3. **~75 s, live penalty:** Alice opens TikTok in Chrome → her usage bar fills → limit runs out → backend slashes → the pool shows "+0.01 SOL" with the mascot, and Bob is marked as winning → click through to Explorer. Leave it running so a second charge lands.
 4. **~10 s, games:** if a light game or Steam is installed, open it and show the dashboard switch to "🎮 Steam." Don't try to launch Valorant or League live; they're too slow.
 5. **~20 s, settlement:** use a demo period that ends during the pitch (e.g. 3 minutes). About 30 s after it ends, the backend settles: Bob wins the pool, then withdraws and his Phantom balance goes up. That's the "money moves" moment.
 6. **~20 s, trust and next steps:** the backend can only move stakes into the pool and award it to group members; missed check-ins count as violations; next: browser extension, mobile, mainnet.
@@ -127,7 +126,6 @@ Keep a recorded backup video in case Wi-Fi or devnet goes down.
 | Main | **Best Use of Solana** (MLH) | Anchor program with a PDA vault and oracle-only slashing |
 | Cheap extra | **Best Use of MongoDB Atlas** | Backend database |
 | Cheap extra | **Best GoDaddy Domain** | Domain for the dashboard |
-| Cheap extra | **Best Use of Gemini API** | Roast per penalty |
 | Cheap extra | **Best Mascot** | Tax-collector character |
 | Pitch-dependent | **Future of Work** (JFF) | Framed as a focus/accountability tool |
 | Possible | **Most Popular** | Funny, easy-to-explain concept |
@@ -145,7 +143,7 @@ Each developer owns one folder. Agree on the interfaces in `docs/contract.md` (e
 | **1** | Frontend (React, TypeScript, Phantom) | `web/` | Wallet connection, create/join group, stake controls, usage bars, live penalty feed, Explorer links, tax-collector mascot | Working dashboard on mock data shaped exactly like the backend's `/state` response |
 | **2** | Smart contract (Rust, Anchor, devnet) | `program/` | Group/member accounts, PDA vault, deposits, slashing, withdrawals, deployment. **Publish the IDL and PDA seeds early** for Devs 1 and 4 | Tested devnet transaction that deposits into the vault and slashes a penalty. **Highest risk: start immediately** (install the toolchain in WSL) |
 | **3** | Windows tracker (Python, pywin32, psutil) + shipping | `tracker/` | Foreground-app tracking, blocklist matching, aggregation, pairing, usage reports. Also: **integration testing**, demo laptop setup, GoDaddy domain, README, Devpost page, demo video | Open YouTube/TikTok and see accurate usage records (printed locally first, then sent to the backend) |
-| **4** | Backend & database (Node/TS, MongoDB Atlas) | `backend/` | Pairing, auth, usage ingestion, collections, penalty worker, `/state` for the dashboard, Gemini roasts, coordinating with Dev 2 | API endpoints that accept usage reports, store them, and calculate penalties without sending transactions yet |
+| **4** | Backend & database (Node/TS, MongoDB Atlas) | `backend/` | Pairing, auth, usage ingestion, collections, penalty worker, `/state` for the dashboard, coordinating with Dev 2 | API endpoints that accept usage reports, store them, and calculate penalties without sending transactions yet |
 
 ### Build order
 
@@ -155,7 +153,7 @@ Goal: get the full loop working early (tracker → backend → slash on-chain �
 |---|---|---|---|---|
 | **1. Skeleton** (first ~3 hrs) | `create_group`, `join_and_stake`, `slash`, tested on devnet | `/usage` + Atlas + an enforcer that only logs | Script that prints the foreground app and whether it's blocked | Connect wallet + read-only group screen |
 | **2. End to end** (~3–4 hrs) | `withdraw`, edge cases, deploy | Enforcer sends real `slash` txs | Sends batches to backend, pairing | Stake flow, live feed, Explorer links |
-| **3. Polish** (rest of the night) | Help the others | Missed check-ins, Gemini roasts | Tray icon, `.exe`, Chrome extension (stretch) | Mascot, demo-mode toggle, styling |
+| **3. Polish** (rest of the night) | Help the others | Missed check-ins | Tray icon, `.exe`, Chrome extension (stretch) | Mascot, demo-mode toggle, styling |
 | **4. Sunday morning** | Everyone: rehearse, record the video, finish Devpost, **submit by ~10:00 AM** | | | |
 
 With fewer than four people, merge the backend and tracker roles first.
@@ -185,7 +183,7 @@ Mainnet and real money; a tamper-proof tracker (missed check-ins are the only sa
 ### Still open
 
 1. **Who owns the Anchor program?** Whoever is most comfortable with Rust; start immediately.
-2. **Program ID:** after Dev 2's first devnet deploy. Record it in `docs/contract.md` section 6 and the `.env.example` files.
+2. **Program ID:** `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi` is reserved (in `docs/contract.md` section 6) but not deployed to devnet yet. Put it in the `.env.example` files once it's live.
 3. **Demo laptops:** pick two, install Phantom on both, fund them from the devnet faucet, and test TikTok tab titles in the browser you'll demo with.
 
 ## Hard deadline

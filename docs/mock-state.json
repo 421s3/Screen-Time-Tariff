@@ -194,7 +194,6 @@
       "status": "pending",
       "signature": null,
       "explorerUrl": null,
-      "roast": null,
       "createdAt": 1794729595000
     },
     {
@@ -207,7 +206,6 @@
       "status": "confirmed",
       "signature": "2FpbDWDF7aNYov82Vs4dZJyCNsTt8x5HwMTybnoYF7q6sHPvFiqGRyL13DYyAC33GCnderMuSndEcbVx6h4VzMf6",
       "explorerUrl": "https://explorer.solana.com/tx/2FpbDWDF7aNYov82Vs4dZJyCNsTt8x5HwMTybnoYF7q6sHPvFiqGRyL13DYyAC33GCnderMuSndEcbVx6h4VzMf6?cluster=devnet",
-      "roast": "Alice has now paid 0.02 SOL in TikTok taxes. The algorithm thanks her for her service.",
       "createdAt": 1794729535000
     },
     {
@@ -220,7 +218,6 @@
       "status": "confirmed",
       "signature": "aRawcHKZs4ZFssGTq2yAa4HsMawXioMzRK5fnXV8mQ88NWtE7d68mubgEAi2KxPY2zsiy7kdpRs4aS4nu9d9K8f",
       "explorerUrl": "https://explorer.solana.com/tx/aRawcHKZs4ZFssGTq2yAa4HsMawXioMzRK5fnXV8mQ88NWtE7d68mubgEAi2KxPY2zsiy7kdpRs4aS4nu9d9K8f?cluster=devnet",
-      "roast": "One more video, Alice said. 0.01 SOL ago.",
       "createdAt": 1794729475000
     }
   ],
