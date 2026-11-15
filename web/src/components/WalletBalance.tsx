@@ -17,10 +17,10 @@ export function WalletBalance() {
   })
 
   if (!address) return null
-  if (q.isError) return <span className="text-sm text-red-300">Balance unavailable</span>
-  if (q.isLoading) return <span className="text-sm text-white/50">Loading balance…</span>
+  if (q.isError) return <span className="text-xs text-bad">Balance unavailable</span>
+  if (q.isLoading) return <span className="text-xs text-muted-foreground">Loading balance…</span>
   return (
-    <span className="text-sm font-semibold text-emerald-300" title="Devnet balance">
+    <span className="text-xs font-semibold text-good" title="Devnet balance">
       {fmtSol(q.data ?? 0)}
     </span>
   )

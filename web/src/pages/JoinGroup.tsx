@@ -1,12 +1,16 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { toast } from 'sonner'
+import { Ticket } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { api } from '../api'
 import { USE_MOCK } from '../config'
 import { rememberGroup } from '../lib/currentGroup'
-import { Card, ErrorBox, WalletGate, btnPrimary, inputCls } from '../components/ui'
+import { ErrorBox, Notice, PageHeader, Panel, WalletGate } from '../components/kit'
 
 export function JoinGroup() {
   const navigate = useNavigate()
@@ -34,39 +38,45 @@ export function JoinGroup() {
 
   return (
     <WalletGate text="Connect Phantom to join a group.">
-      <form onSubmit={onSubmit} className="mx-auto max-w-md space-y-4">
-        <h2 className="text-2xl font-bold">Join a group</h2>
-        <Card className="space-y-4">
-          <label className="block space-y-1">
-            <span className="text-sm text-white/70">Invite code</span>
-            <input
-              className={`${inputCls} font-mono text-lg tracking-[0.3em] uppercase`}
+      <form onSubmit={onSubmit} className="mx-auto max-w-lg">
+        <PageHeader
+          title="Join a group"
+          subtitle="Got an invite code from a friend? Enter it below."
+          say="Welcome aboard! Six characters, please."
+        />
+        <Panel className="space-y-5">
+          <div className="space-y-1.5">
+            <Label htmlFor="invite">Invite code</Label>
+            <Input
+              id="invite"
+              className="h-14 text-center font-mono text-2xl font-semibold tracking-[0.4em] uppercase md:text-2xl"
               maxLength={6}
+              autoComplete="off"
               placeholder="TAX42Z"
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
             />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm text-white/70">Your display name</span>
-            <input
-              className={inputCls}
-              placeholder="Bob"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-          </label>
-          <p className="text-xs text-white/50">
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="join-name">Your display name</Label>
+            <Input id="join-name" placeholder="Bob" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          </div>
+          <p className="text-sm text-muted-foreground">
             Groups hold up to 8 members. You can join any time before the period ends.
           </p>
-          {USE_MOCK && (
-            <p className="text-xs text-amber-200">Demo mode: use invite code TAX42Z.</p>
-          )}
-        </Card>
-        {mutation.isError && <ErrorBox message={(mutation.error as Error).message} />}
-        <button className={`${btnPrimary} w-full`} disabled={mutation.isPending}>
-          {mutation.isPending ? 'Joining…' : 'Join group'}
-        </button>
+          {USE_MOCK && <Notice tone="warn">Demo mode: use invite code TAX42Z.</Notice>}
+          {mutation.isError && <ErrorBox message={(mutation.error as Error).message} />}
+          <Button size="lg" className="w-full" disabled={mutation.isPending}>
+            <Ticket />
+            {mutation.isPending ? 'Joining…' : 'Join group'}
+          </Button>
+        </Panel>
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          No code?{' '}
+          <Link to="/create" className="font-medium text-brand hover:underline">
+            Create a group
+          </Link>
+        </p>
       </form>
     </WalletGate>
   )

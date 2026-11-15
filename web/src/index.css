@@ -1,21 +1,225 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Screen Time Tariff design system.
+   Warm paper background, ink text and primary actions, coin-gold highlights, soft pastel tiles.
+   Violet is Tariff Tom's colour and is used sparingly (links, active nav, focus ring).
+   Layout and storytelling rhythm take cues from ahead-app.com; illustrations and copy are our own. */
 
 :root {
-  color-scheme: dark;
+  --radius: 0.625rem;
+  --background: #f6f4ff;
+  --foreground: #17152d;
+  --card: #ffffff;
+  --card-foreground: #17152d;
+  --popover: #ffffff;
+  --popover-foreground: #17152d;
+  --primary: #7654f6;
+  --primary-foreground: #ffffff;
+  --secondary: #ece7ff;
+  --secondary-foreground: #17152d;
+  --muted: #eeeafb;
+  --muted-foreground: #57527a;
+  --accent: #eeeafb;
+  --accent-foreground: #17152d;
+  --destructive: #c8283c;
+  --border: #e3ddf7;
+  --input: #d3cbf0;
+  --ring: #7654f6;
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background: radial-gradient(1200px 600px at 20% -10%, #3b1d6b55, transparent),
-    #0b0b14;
-  color: #e8e8f2;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+@theme inline {
+  --font-sans: "Outfit", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Outfit", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Brand */
+  --color-ink: #17152d;
+  --color-brand: #6a47f0;
+  --color-purple: #7654f6;
+  --color-lavender: #b9a5ff;
+  --color-gold: #f5b82e;
+  --color-good: #17734d;
+  --color-bad: #b4232f;
+  --color-warn: #8a5a00;
+  /* Pastel surfaces (always paired with ink text) */
+  --color-lemon: #ffe39a;
+  --color-mint: #bcefe0;
+  --color-sky: #dce6ff;
+  --color-coral: #ffd6cc;
+  --color-lilac: #e7e0ff;
+  --color-blush: #f6b9d6;
 }
 
-/* Keep the wallet button consistent with the app buttons. */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+    margin: 0;
+    min-height: 100vh;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+/* Headline accent: a coin-gold highlighter stroke under one word. */
+.mark {
+  background-image: linear-gradient(transparent 60%, var(--color-gold) 60%, var(--color-gold) 88%, transparent 88%);
+  padding: 0 0.08em;
+  margin: 0 -0.08em;
+}
+
+/* Pairing / invite code digits */
+.code-digit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+/* Toggle chips (blocklist, period presets) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--input);
+  background: var(--card);
+  padding: 0.4rem 0.95rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.15s;
+}
+.chip:hover {
+  border-color: var(--color-purple);
+}
+.chip:active {
+  transform: translateY(1px);
+}
+.chip:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--ring) 50%, transparent);
+  outline-offset: 2px;
+}
+.chip[aria-pressed="true"],
+.chip[aria-checked="true"] {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #6a47f0, #6f3fe0);
+}
+
+/* Phantom wallet button = our primary button */
 .wallet-adapter-button {
-  font-family: inherit !important;
+  font-family: var(--font-sans) !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
   height: 40px !important;
-  border-radius: 12px !important;
+  padding: 0 16px !important;
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #6a47f0, #6f3fe0) !important;
+  color: #fff !important;
+  white-space: nowrap;
+  transition: transform 0.15s ease, background-color 0.15s ease !important;
+}
+.wallet-adapter-button-start-icon {
+  width: 18px !important;
+  height: 18px !important;
+  margin-right: 8px !important;
+}
+.wallet-adapter-button:not([disabled]):hover {
+  background: linear-gradient(135deg, #5e3be6, #6334d4) !important;
+  transform: translateY(-1px);
+}
+.wallet-adapter-button:not([disabled]):active {
+  transform: translateY(1px);
+}
+@media (max-width: 400px) {
+  .wallet-adapter-button {
+    padding: 0 12px !important;
+    font-size: 13px !important;
+  }
+}
+
+/* Gentle float for illustrations */
+@keyframes drift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.drift {
+  animation: drift 6s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Light wallet button on coloured sections */
+.on-color .wallet-adapter-button {
+  background: #fff !important;
+  color: #4a2fd0 !important;
+}
+.on-color .wallet-adapter-button:not([disabled]):hover {
+  background: #f3efff !important;
+}
+
+/* Soft multicolour washes */
+.wash-hero {
+  background:
+    radial-gradient(40% 55% at 88% 18%, rgb(246 185 214 / 0.55), transparent 70%),
+    radial-gradient(35% 45% at 70% 85%, rgb(255 227 154 / 0.55), transparent 70%),
+    radial-gradient(45% 60% at 8% 10%, rgb(185 165 255 / 0.55), transparent 70%),
+    linear-gradient(180deg, #efeaff 0%, #f6f4ff 100%);
+}
+.wash-purple {
+  background:
+    radial-gradient(50% 70% at 100% 0%, rgb(246 185 214 / 0.16), transparent 70%),
+    linear-gradient(135deg, #4f30d8 0%, #6243e6 55%, #6f3fdc 100%);
 }

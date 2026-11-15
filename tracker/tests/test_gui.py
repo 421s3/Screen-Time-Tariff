@@ -240,9 +240,10 @@ def test_window_pairs_tracks_and_disconnects(backend, tmp_path, tk_root, monkeyp
     app.on_pair()
     pump(app, lambda: "connected" in app.status_var.get())
     assert app.who_var.get().startswith("Paired as Alice")
-    assert app.now_var.get() == "Now: Valorant (game/app)"
+    assert app.now_var.get() == "Valorant"
+    assert app.view.mood == "angry" and app.view.headline == "Tariff Tom sees Valorant"
     pump(app, lambda: "Valorant" in app.session_var.get())
-    assert "Backend: http://127.0.0.1" in app.backend_var.get()
+    assert "Backend: http://127.0.0.1" in app.backend_var.get()  # shown in Settings, kept for the record
 
     monkeypatch.setattr(messagebox, "askyesno", lambda *a, **k: True)
     app.on_disconnect()
@@ -262,13 +263,16 @@ def test_window_close_without_tray_quits_cleanly(backend, tmp_path, tk_root):
 def test_close_with_tray_keeps_tracking(backend, tmp_path, tk_root):
     class FakeTray:
         def __init__(self, post):
-            self.notes = []
+            self.notes, self.moods = [], []
 
         def title(self, t):
             pass
 
         def notify(self, t):
             self.notes.append(t)
+
+        def mood(self, m):
+            self.moods.append(m)
 
         def stop(self):
             pass
@@ -279,12 +283,112 @@ def test_close_with_tray_keeps_tracking(backend, tmp_path, tk_root):
     app = tracker_gui.App(tk_root, c, tray_factory=FakeTray)
     app.on_close()
     assert c.tracking and not app.closing, "the X hides to the tray; tracking continues"
-    assert app.tray.notes and "Still tracking" in app.tray.notes[0]
+    assert app.tray.notes and "still tracking" in app.tray.notes[0]
     c.post("tray_quit")
     pump(app, lambda: app.closing)
     assert not c.tracking
 
 
 def test_tray_icon_image():
-    img = tracker_gui.make_icon_image(32)
-    assert img.size == (32, 32)
+    for mood in ("happy", "angry", "worried", "sleepy"):
+        img = tracker_gui.make_icon_image(32, mood)
+        assert img.size == (32, 32) and img.getbbox()  # Tom's face, not a blank square
+
+
+# ---------------------------------------------------------------- Tariff Tom's moods
+
+from tracker_gui import view_for  # noqa: E402
+
+
+@pytest.mark.parametrize("state,mood,headline", [
+    ({"paired": False}, "happy", "Hi, I'm Tariff Tom!"),
+    ({"paired": False, "busy": True}, "happy", "Checking your code…"),
+    ({"paired": False, "error": "bad code"}, "worried", "Hmm, that didn't work"),
+    ({"paired": True, "online": True}, "happy", "All clear"),
+    ({"paired": True, "online": True, "label": "TikTok", "match_type": "title"}, "angry", "Tariff Tom sees TikTok"),
+    ({"paired": True, "online": True, "label": "Valorant", "match_type": "process"}, "angry", "Tariff Tom sees Valorant"),
+    ({"paired": True, "online": False, "queued": 3}, "worried", "Offline, saving your usage"),
+    ({"paired": True, "online": False, "label": "TikTok", "match_type": "title"}, "angry", "Tariff Tom sees TikTok"),
+    ({"paired": True, "online": True, "idle": True}, "sleepy", "Taking a break?"),
+    ({"paired": True, "online": None}, "happy", "Connecting…"),
+    ({"paired": True, "error": "boom"}, "worried", "Tracking stopped"),
+])
+def test_tom_mood_for_each_state(state, mood, headline):
+    v = view_for(**state)
+    assert (v.mood, v.headline) == (mood, headline)
+
+
+def test_offline_copy_counts_saved_reports_and_pill():
+    v = view_for(True, online=False, queued=1)
+    assert "1 report saved" in v.sub and v.pill_text == "Offline"
+    assert view_for(True, online=True).pill_text == "Live"
+    assert "tracked site" in view_for(True, online=True, label="YouTube", match_type="title").sub.lower()
+
+
+def test_copy_never_claims_to_block():
+    import itertools
+
+    for paired, online, label, idle in itertools.product((True, False), (True, False, None), (None, "TikTok"), (True, False)):
+        v = view_for(paired, online=online, label=label, match_type="title", idle=idle)
+        assert not any(w in (v.headline + v.sub).lower() for w in ("blocked", "closing", "closed", "will block"))
+
+
+def test_tom_art_moods_render():
+    import tom_art
+
+    imgs = {m: tom_art.tom(m, 96) for m in tom_art.MOODS}
+    assert all(i.size == (96, 96) for i in imgs.values())
+    assert imgs["happy"].tobytes() != imgs["angry"].tobytes()
+
+
+def test_window_mood_follows_the_foreground_app(backend, tmp_path, tk_root):  # noqa: F811
+    c = make(backend, tmp_path)
+    c.start = lambda: False
+    app = tracker_gui.App(tk_root, c, tray_factory=None)
+    c.client.token = "trk_x"
+    c.pairing.data = {"displayName": "A", "wallet": "W", "groupId": "G" * 24}
+    app.handle("paired", c.identity)
+    app.handle("report", {"totals": {}, "status": "sent", "queued": 0, "online": True})
+    app.handle("sample", {"label": None, "matchType": None, "idle": False})
+    assert app.view.mood == "happy" and app.headline_var.get() == "All clear"
+    app.handle("sample", {"label": "TikTok", "matchType": "title", "idle": False})
+    assert app.view.mood == "angry" and app._fx["shake"] == 1.0, "Tom shakes when he turns angry"
+    app.handle("sample", {"label": None, "matchType": None, "idle": False})
+    assert app.view.mood == "happy" and app._fx["hop"] == 1.0, "and hops back to happy"
+    app.handle("report", {"totals": {}, "status": "offline", "queued": 4, "online": False})
+    assert app.view.mood == "worried" and app.status_var.get().startswith("Tracking · offline")
+
+
+def test_pet_popup_follows_tracked_apps(backend, tmp_path, tk_root):  # noqa: F811
+    c = make(backend, tmp_path)
+    c.start = lambda: False
+    app = tracker_gui.App(tk_root, c, tray_factory=None)
+    pet = app.pet
+    app.handle("sample", {"label": "Instagram", "matchType": "title", "idle": False})
+    assert not pet.visible, "never pops up before pairing"
+    c.client.token = "trk_x"
+    c.pairing.data = {"displayName": "A", "wallet": "W", "groupId": "G" * 24}
+    app.handle("paired", c.identity)
+
+    app.handle("sample", {"label": "Instagram", "matchType": "title", "idle": False})
+    assert pet.visible and pet.canvas.itemcget(pet.title, "text") == "Tariff Tom sees Instagram"
+    assert "Tracked site" in pet.canvas.itemcget(pet.sub, "text")
+    app.handle("sample", {"label": "Valorant", "matchType": "process", "idle": False})
+    assert pet.visible and "Valorant" in pet.canvas.itemcget(pet.title, "text")
+    assert "Tracked game" in pet.canvas.itemcget(pet.sub, "text")
+
+    pet.dismiss()  # click: snooze for this app
+    assert not pet.visible
+    app.handle("sample", {"label": "Valorant", "matchType": "process", "idle": False})
+    assert not pet.visible, "stays dismissed while still on the same app"
+    app.handle("sample", {"label": None, "matchType": None, "idle": False})
+    app.handle("sample", {"label": "Valorant", "matchType": "process", "idle": False})
+    assert pet.visible, "comes back on the next visit"
+
+    app.handle("sample", {"label": None, "matchType": None, "idle": False})
+    assert not pet.visible
+    end = time.monotonic() + 0.6  # the slide takes ~0.2 s
+    while time.monotonic() < end:
+        tk_root.update()
+        time.sleep(0.01)
+    assert pet.x > pet._workarea()[2], "slid off the screen"

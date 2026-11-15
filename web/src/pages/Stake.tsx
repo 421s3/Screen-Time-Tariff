@@ -3,19 +3,15 @@ import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { toast } from 'sonner'
+import { ArrowRight, Coins, ExternalLink, LayoutDashboard } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { api } from '../api'
 import { useGroupState } from '../api/hooks'
 import { USE_MOCK } from '../config'
 import { explorerTx, fmtSol, parseSolToLamports } from '../lib/format'
-import {
-  Card,
-  ErrorBox,
-  Loading,
-  WalletGate,
-  btnGhost,
-  btnPrimary,
-  inputCls,
-} from '../components/ui'
+import { ErrorBox, Loading, Notice, PageHeader, Panel, Stat, WalletGate } from '../components/kit'
 
 export function Stake() {
   const { groupId = '' } = useParams()
@@ -61,79 +57,102 @@ function StakeInner({ groupId }: { groupId: string }) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
-      <h2 className="text-2xl font-bold">Stake into “{group.name}”</h2>
+    <div className="mx-auto max-w-4xl">
+      <PageHeader
+        title={<>Stake into “{group.name}”</>}
+        subtitle="Tariffs come out of your stake, and only staked members can win the pool."
+        mood={me?.staked ? 'celebrate' : 'happy'}
+        say={me?.staked ? "You're in! Add more any time." : 'Put some SOL where your screen time is.'}
+      />
 
-      <Card className="grid gap-3 text-sm sm:grid-cols-4">
-        <Info label="Allowance" value={`${group.rules.allowanceMinutes} min`} />
-        <Info label="Tariff" value={`${fmtSol(group.rules.tariffLamportsPerMinute)}/min`} />
-        <Info label="Pool so far" value={fmtSol(totals.penaltyPoolLamports)} />
-        <Info label="Invite code" value={group.joinCode} mono />
-      </Card>
+      <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_300px]">
+        <form onSubmit={onSubmit}>
+          <Panel className="space-y-5">
+            {!me ? (
+              <Notice tone="warn">Join this group first (use the invite code).</Notice>
+            ) : ended ? (
+              <Notice tone="warn">The period has ended, so staking is closed.</Notice>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="amount">Amount (devnet SOL)</Label>
+                  <div className="relative">
+                    <Input
+                      id="amount"
+                      className="h-14 pr-14 font-display text-2xl font-semibold md:text-2xl"
+                      inputMode="decimal"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                    <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">
+                      SOL
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {['0.1', '0.25', '0.5', '1'].map((v) => (
+                      <button type="button" key={v} className="chip min-h-8 px-3 py-1 text-sm" aria-pressed={amount === v} onClick={() => setAmount(v)}>
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {mutation.isError && <ErrorBox message={(mutation.error as Error).message} />}
+                <Button size="lg" className="w-full" disabled={mutation.isPending}>
+                  <Coins />
+                  {mutation.isPending ? 'Waiting for confirmation…' : me.staked ? 'Add to stake' : 'Stake SOL'}
+                </Button>
+              </>
+            )}
+            {USE_MOCK && (
+              <p className="text-sm text-warn">Demo mode: no transaction is sent.</p>
+            )}
+            {lastSig && (
+              <a
+                className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+                href={explorerTx(lastSig)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View on Solana Explorer <ExternalLink className="size-3.5" />
+              </a>
+            )}
+          </Panel>
+        </form>
 
-      <Card className="grid gap-3 text-sm sm:grid-cols-3">
-        <Info label="You deposited" value={fmtSol(me?.stakedLamports ?? 0)} />
-        <Info label="Paid into the pool" value={fmtSol(me?.slashedLamports ?? 0)} />
-        <Info label="Withdrawable" value={fmtSol(me?.remainingLamports ?? 0)} />
-      </Card>
-
-      <form onSubmit={onSubmit}>
-        <Card className="space-y-3">
-          <p className="text-sm text-white/70">
-            Your stake is what tariffs are charged from. Only members who stake can be charged, and
-            only they can win the pool.
-          </p>
-          {!me ? (
-            <p className="text-amber-200">Join this group first (use the invite code).</p>
-          ) : ended ? (
-            <p className="text-amber-200">The period has ended, so staking is closed.</p>
-          ) : (
-            <>
-              <label className="block space-y-1">
-                <span className="text-sm text-white/70">Amount (devnet SOL)</span>
-                <input
-                  className={inputCls}
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </label>
-              {mutation.isError && <ErrorBox message={(mutation.error as Error).message} />}
-              <button className={`${btnPrimary} w-full`} disabled={mutation.isPending}>
-                {mutation.isPending ? 'Waiting for confirmation…' : me.staked ? 'Add to stake' : 'Stake SOL'}
-              </button>
-            </>
-          )}
-          {USE_MOCK && (
-            <p className="text-xs text-amber-200">
-              Demo mode: no transaction is sent. Real staking via Phantom arrives at CP3.
-            </p>
-          )}
-          {lastSig && (
-            <a className="text-sm text-sky-300 underline" href={explorerTx(lastSig)} target="_blank" rel="noreferrer">
-              View on Solana Explorer
-            </a>
-          )}
-        </Card>
-      </form>
-
-      <div className="flex flex-wrap gap-2">
-        <Link className={btnGhost} to={`/group/${groupId}/pair`}>
-          Next: pair your tracker
-        </Link>
-        <Link className={btnGhost} to={`/group/${groupId}`}>
-          Go to dashboard
-        </Link>
+        <aside className="space-y-3">
+          <Stat label="You deposited" value={fmtSol(me?.stakedLamports ?? 0)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Stat label="Paid into pool" value={fmtSol(me?.slashedLamports ?? 0)} />
+            <Stat label="Withdrawable" value={fmtSol(me?.remainingLamports ?? 0)} tone="bg-mint border-[#b9e3cc]" />
+          </div>
+          <dl className="divide-y rounded-xl border bg-card text-sm">
+            {[
+              ['Allowance', `${group.rules.allowanceMinutes} min`],
+              ['Tariff', `${fmtSol(group.rules.tariffLamportsPerMinute)} / min`],
+              ['Pool so far', fmtSol(totals.penaltyPoolLamports)],
+              ['Invite code', group.joinCode],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3 px-4 py-2.5">
+                <dt className="text-muted-foreground">{k}</dt>
+                <dd className={k === 'Invite code' ? 'font-mono font-semibold tracking-widest' : 'font-medium'}>{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </aside>
       </div>
-    </div>
-  )
-}
 
-function Info({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <p className="text-white/50">{label}</p>
-      <p className={`text-lg font-semibold ${mono ? 'font-mono tracking-widest' : ''}`}>{value}</p>
+      <div className="mt-6 flex flex-wrap gap-2">
+        <Button asChild>
+          <Link to={`/group/${groupId}/pair`}>
+            Next: pair your tracker <ArrowRight />
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to={`/group/${groupId}`}>
+            <LayoutDashboard /> Dashboard
+          </Link>
+        </Button>
+      </div>
     </div>
   )
 }

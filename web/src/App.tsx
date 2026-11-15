@@ -1,6 +1,8 @@
 import { Link, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { EmptyState, btnGhost } from './components/ui'
+import { House } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from './components/kit'
 import { Landing } from './pages/Landing'
 import { CreateGroup } from './pages/CreateGroup'
 import { JoinGroup } from './pages/JoinGroup'
@@ -23,12 +25,13 @@ export default function App() {
         <Route
           path="*"
           element={
-            <div className="space-y-3">
-              <EmptyState title="Page not found" body="That page doesn't exist." />
-              <Link className={btnGhost} to="/">
-                Back home
-              </Link>
-            </div>
+            <EmptyState title="Page not found" body="That page doesn't exist.">
+              <Button asChild variant="outline">
+                <Link to="/">
+                  <House /> Back home
+                </Link>
+              </Button>
+            </EmptyState>
           }
         />
       </Route>

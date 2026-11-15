@@ -40,6 +40,21 @@ After that:
 
 The app only measures what's in front. It never blocks, closes or slows down any app or site.
 
+**Tariff Tom** (the dashboard's mascot) lives in the app and reacts to what you're doing:
+
+| You are… | Tom | Window |
+|---|---|---|
+| not paired yet | happy, waving you in | pairing card |
+| on nothing tracked | happy | "All clear" |
+| on a tracked site or game | **angry** (steam, frown), and a **pop-up slides in at the screen edge**: "Tariff Tom sees Instagram" | red glow, "Tracked site" tag |
+| offline | worried | "Offline, saving your usage" |
+| idle | sleepy | "Taking a break?" |
+
+The pop-up works while the window is in the tray, never takes focus (so it can't disturb tracking or
+your game), and slides away when you leave the tracked app. Click it to dismiss it until your next
+visit. The tray icon shows Tom's current mood too. Artwork: `tom_art.py` (Pillow, redrawn from
+`web/src/components/Mascot.tsx`); the window is DPI-aware, so it stays sharp at 125-200% scaling.
+
 ### Backend and dashboard URLs (Railway / Vercel)
 
 The app finds them in this order, so they can change **without rebuilding**:

@@ -1,13 +1,15 @@
 import { AnimatePresence, motion } from 'framer-motion'
+import { Coins, ExternalLink } from 'lucide-react'
 import type { Penalty } from '../types'
 import { explorerTx, fmtDuration, fmtSol } from '../lib/format'
-import { Card, EmptyState } from './ui'
+import { cn } from '@/lib/utils'
+import { EmptyState } from './kit'
 
 const statusStyle: Record<Penalty['status'], string> = {
-  pending: 'bg-amber-400/20 text-amber-200',
-  sent: 'bg-sky-400/20 text-sky-200',
-  confirmed: 'bg-emerald-400/20 text-emerald-200',
-  failed: 'bg-red-400/20 text-red-200',
+  pending: 'bg-lemon text-warn',
+  sent: 'bg-sky text-ink',
+  confirmed: 'bg-mint text-good',
+  failed: 'bg-coral text-bad',
 }
 
 /** Winner-takes-pool: each penalty moves the charge from the member's stake into the pool. */
@@ -21,7 +23,7 @@ export function PenaltyFeed({ penalties }: { penalties: Penalty[] }) {
     )
   }
   return (
-    <ul className="space-y-3">
+    <ul className="divide-y overflow-hidden rounded-xl border bg-card">
       <AnimatePresence initial={false}>
         {penalties.map((p) => {
           const link = p.explorerUrl ?? (p.signature && !p.signature.startsWith('mock_') ? explorerTx(p.signature) : null)
@@ -29,32 +31,35 @@ export function PenaltyFeed({ penalties }: { penalties: Penalty[] }) {
             <motion.li
               key={p.penaltyId}
               layout
-              initial={{ opacity: 0, y: -12 }}
+              initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
+              className="flex items-start gap-3 px-4 py-3"
             >
-              <Card className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">
-                    {p.displayName} paid {fmtSol(p.lamports)} into the pool
-                    <span className="font-normal text-white/60">
-                      {' '}
-                      for {p.seconds !== undefined && p.seconds % 60 !== 0 ? fmtDuration(p.seconds) : `${p.minutes} min`} of {p.app}
-                    </span>
-                  </p>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusStyle[p.status]}`}
-                  >
-                    {p.status}
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-lemon">
+                <Coins className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">
+                  <span className="font-semibold">{p.displayName}</span> paid{' '}
+                  <span className="font-semibold">{fmtSol(p.lamports)}</span>
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · {p.seconds !== undefined && p.seconds % 60 !== 0 ? fmtDuration(p.seconds) : `${p.minutes} min`} of {p.app}
                   </span>
-                </div>
-                <p className="mt-2 text-xs">
+                </p>
+                <p className="mt-0.5 text-xs">
                   {link ? (
-                    <a className="text-sky-300 underline" href={link} target="_blank" rel="noreferrer">
-                      View on Solana Explorer
+                    <a
+                      className="inline-flex items-center gap-1 font-medium text-brand hover:underline"
+                      href={link}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Solana Explorer <ExternalLink className="size-3" />
                     </a>
                   ) : (
-                    <span className="text-white/40">
+                    <span className="text-muted-foreground">
                       {p.status === 'confirmed'
                         ? 'No Explorer link (demo or mock chain)'
                         : p.status === 'failed'
@@ -63,7 +68,10 @@ export function PenaltyFeed({ penalties }: { penalties: Penalty[] }) {
                     </span>
                   )}
                 </p>
-              </Card>
+              </div>
+              <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-xs font-medium', statusStyle[p.status])}>
+                {p.status}
+              </span>
             </motion.li>
           )
         })}
