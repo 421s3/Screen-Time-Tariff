@@ -135,7 +135,7 @@ export function UsageBar({
         <span>
           {usedMinutes} min / {allowanceMinutes} min allowed
         </span>
-        {over && <span className="text-red-300">{usedMinutes - allowanceMinutes} over</span>}
+        {over && <span className="text-red-300">{Math.round((usedMinutes - allowanceMinutes) * 100) / 100} over</span>}
       </div>
       <div
         className="mt-1 h-2.5 overflow-hidden rounded-full bg-white/10"

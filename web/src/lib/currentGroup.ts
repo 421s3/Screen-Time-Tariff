@@ -1,34 +1,45 @@
-import { useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useMatch } from 'react-router-dom'
+import { useWallet } from '@solana/wallet-adapter-react'
 import { DEMO_GROUP_ID, USE_MOCK } from '../config'
 
-// The nav's Stake / Pair / Dashboard / Results links need a group id. Use the group in the URL,
-// else the last group this browser visited, else (mock only) the scripted demo group.
-const KEY = 'stt.lastGroupId'
+// The backend has no "my groups" endpoint, so remember the last group each wallet created or joined.
+const key = (wallet: string) => `stt:lastGroup:${wallet}`
 
-function readLast(): string | null {
+export function rememberGroup(wallet: string, groupId: string): void {
   try {
-    return localStorage.getItem(KEY)
+    localStorage.setItem(key(wallet), groupId)
+  } catch {
+    // storage disabled (private window): navigation falls back to the URL
+  }
+}
+
+export function rememberedGroup(wallet: string): string | null {
+  try {
+    return localStorage.getItem(key(wallet))
   } catch {
     return null
   }
 }
 
-function writeLast(id: string) {
-  try {
-    localStorage.setItem(KEY, id)
-  } catch {
-    /* private window: just don't remember */
+/** Drop a remembered group that no longer exists (e.g. the database was reset). */
+export function forgetGroup(wallet: string, groupId: string): void {
+  if (rememberedGroup(wallet) === groupId) {
+    try {
+      localStorage.removeItem(key(wallet))
+    } catch {
+      // ignore
+    }
   }
 }
 
-/** The group the nav should link to, or null when there isn't one yet (real backend, nothing visited). */
+/**
+ * The group the nav links point at. Mock mode: the demo group. Real mode: the group in the URL,
+ * else the connected wallet's last created/joined group, else null (not in a group yet).
+ */
 export function useCurrentGroupId(): string | null {
-  const { pathname } = useLocation()
-  const fromUrl = /^\/group\/([^/]+)/.exec(pathname)?.[1] ?? null
-  useEffect(() => {
-    if (fromUrl && !USE_MOCK) writeLast(fromUrl)
-  }, [fromUrl])
-  if (USE_MOCK) return fromUrl ?? DEMO_GROUP_ID
-  return fromUrl ?? readLast()
+  const match = useMatch('/group/:groupId/*')
+  const { publicKey } = useWallet()
+  if (USE_MOCK) return DEMO_GROUP_ID
+  if (match?.params.groupId) return match.params.groupId
+  return publicKey ? rememberedGroup(publicKey.toBase58()) : null
 }

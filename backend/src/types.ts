@@ -21,6 +21,9 @@ export interface Blocklist {
 
 export interface Rules {
   allowanceMinutes: number;
+  // Optional finer allowance (e.g. 30 s for testing). Wins over allowanceMinutes when penalties are
+  // charged by the second; the devnet program only knows allowanceMinutes.
+  allowanceSeconds?: number;
   tariffLamportsPerMinute: number;
   periodStart: number; // unix ms
   periodEnd: number; // unix ms
@@ -130,6 +133,10 @@ export interface PenaltyDoc {
   minutes: number;
   lamports: number; // estimate until confirmed, then the amount actually charged on-chain
   totalMinutesOver: number; // cumulative target sent to `slash` (makes resends safe)
+  // Second-precision penalties only (PENALTY_PRECISION=seconds):
+  seconds?: number; // over-allowance seconds this penalty charges for
+  totalSecondsOver?: number; // cumulative over-allowance seconds at creation
+  totalLamportsOwed?: number; // cumulative lamports target sent to slashToLamports (makes resends safe)
   status: PenaltyStatus;
   signature: string | null;
   attempts: number;

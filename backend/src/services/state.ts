@@ -10,6 +10,7 @@ import { ApiError } from "../errors.js";
 import type { Blocklist, MatchType, PenaltyStatus, SettlementStatus } from "../types.js";
 import { explorerUrlFor } from "../util.js";
 import { OFFLINE_APP } from "./offline.js";
+import { allowanceSecondsOf, chargesBySecond, toMinutes } from "./penalties.js";
 import { blockedUsage, isStaked } from "./usage.js";
 
 export interface MemberState {
@@ -89,7 +90,11 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
     trackers().find({ groupId }).toArray(),
   ]);
   const confirmed = allPenalties.filter((p) => p.status === "confirmed");
-  const { allowanceMinutes, tariffLamportsPerMinute, periodStart, periodEnd, demoMode } = group.rules;
+  const { tariffLamportsPerMinute, periodStart, periodEnd, demoMode } = group.rules;
+  // Second precision: same keys, but minute values may be fractional (e.g. 0.5 = 30 s), for display only
+  const bySecond = chargesBySecond();
+  const allowanceSeconds = allowanceSecondsOf(group.rules);
+  const allowanceMinutes = bySecond ? toMinutes(allowanceSeconds) : group.rules.allowanceMinutes;
 
   const members: MemberState[] = group.members.map((m) => {
     const byApp = usage
@@ -123,8 +128,12 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       usage: {
         blockedSeconds,
         blockedMinutes,
-        minutesOver: Math.max(0, blockedMinutes - allowanceMinutes),
-        minutesCharged: chain?.minutesCharged ?? paid.reduce((sum, p) => sum + p.minutes, 0),
+        minutesOver: bySecond
+          ? toMinutes(Math.max(0, blockedSeconds - allowanceSeconds))
+          : Math.max(0, blockedMinutes - allowanceMinutes),
+        minutesCharged: bySecond
+          ? toMinutes(paid.reduce((sum, p) => sum + (p.seconds ?? p.minutes * 60), 0))
+          : (chain?.minutesCharged ?? paid.reduce((sum, p) => sum + p.minutes, 0)),
         // Already included in blockedSeconds and byApp; shown separately so the UI can call it out
         offlineMinutes: Math.floor((byApp.find((u) => u.app === OFFLINE_APP)?.seconds ?? 0) / 60),
         byApp,

@@ -39,6 +39,12 @@ export interface Chain {
   fetchMembers(groupPda: string, wallets: string[]): Promise<Map<string, OnchainMember | null>>;
   /** Oracle-only. Cumulative: resending the same or a lower total charges nothing. Returns the signature. */
   slash(groupPda: string, wallet: string, totalMinutesOver: number): Promise<string>;
+  /**
+   * Oracle-only, cumulative like `slash` but in lamports: charges `totalLamports - totalSlashed`
+   * (capped at the balance). Only FakeChain has it until the program gets a lamport-based slash;
+   * without it the backend charges whole minutes.
+   */
+  slashToLamports?(groupPda: string, wallet: string, totalLamports: number): Promise<string>;
   /** Oracle-only, after period end, once. Winners in any order; implementations sort them. */
   settle(groupPda: string, winnerWallets: string[]): Promise<string>;
 }

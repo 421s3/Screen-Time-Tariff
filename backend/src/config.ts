@@ -17,6 +17,9 @@ const Env = z.object({
   CHAIN_MODE: z.enum(["off", "mock", "devnet"]).default("off"),
   // Cap reported seconds at the real time since the tracker was paired. Only the smoke test turns it off.
   USAGE_RATE_CAP: z.enum(["true", "false"]).default("true"),
+  // seconds = charge over-allowance time to the second (proportional lamports); minutes = whole minutes
+  // (what the devnet program does today). CHAIN_MODE=devnet always uses minutes until the program changes.
+  PENALTY_PRECISION: z.enum(["seconds", "minutes"]).default("seconds"),
   // Count tracker silence (beyond the grace) as blocked time. Off while developing, on for the demo.
   ENFORCE_OFFLINE: z.enum(["true", "false"]).default("false"),
   OFFLINE_GRACE_SEC: z.coerce.number().int().min(0).default(120),
@@ -79,6 +82,7 @@ export const config = {
   workerIntervalSec: env.WORKER_INTERVAL_SEC,
   chainMode: env.CHAIN_MODE,
   usageRateCap: env.USAGE_RATE_CAP === "true",
+  penaltyPrecision: env.PENALTY_PRECISION as "seconds" | "minutes",
   enforceOffline: env.ENFORCE_OFFLINE === "true", // mutable so tests can flip it
   offlineGraceSec: env.OFFLINE_GRACE_SEC,
 

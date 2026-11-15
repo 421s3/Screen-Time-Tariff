@@ -5,6 +5,7 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { toast } from 'sonner'
 import { api } from '../api'
 import { USE_MOCK } from '../config'
+import { rememberGroup } from '../lib/currentGroup'
 import { Card, ErrorBox, WalletGate, btnPrimary, inputCls } from '../components/ui'
 
 export function JoinGroup() {
@@ -20,6 +21,7 @@ export function JoinGroup() {
       return api.joinGroup(code, displayName.trim(), publicKey!.toBase58())
     },
     onSuccess: (res) => {
+      rememberGroup(publicKey!.toBase58(), res.groupId)
       toast.success('Joined! Now stake your SOL.')
       navigate(`/group/${res.groupId}/stake`)
     },

@@ -7,6 +7,7 @@ import { api } from '../api'
 import { USE_MOCK } from '../config'
 import { PERIOD_PRESETS, type Blocklist } from '../types'
 import { parseSolToLamports } from '../lib/format'
+import { rememberGroup } from '../lib/currentGroup'
 import { Card, ErrorBox, WalletGate, btnPrimary, inputCls } from '../components/ui'
 
 // Default blocklist: docs/contract.md section 5, minus `steam.exe` (the Steam client isn't
@@ -73,6 +74,7 @@ export function CreateGroup() {
       )
     },
     onSuccess: (res) => {
+      rememberGroup(publicKey!.toBase58(), res.groupId)
       queryClient.invalidateQueries({ queryKey: ['state'] })
       toast.success(`Group created. Invite code: ${res.joinCode}`)
       navigate(`/group/${res.groupId}/stake`)

@@ -51,7 +51,7 @@ export function Landing() {
             </Link>
             {groupId && (
               <Link className={btnGhost} to={`/group/${groupId}`}>
-                {USE_MOCK ? 'Open the demo dashboard' : 'Back to your group'}
+                {USE_MOCK ? 'Open the demo dashboard' : 'Open my group dashboard'}
               </Link>
             )}
           </Card>

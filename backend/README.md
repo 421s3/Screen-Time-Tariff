@@ -33,6 +33,40 @@ npm run dev               # http://localhost:4000/health → {"ok":true}
 | `mock` (default in `.env.example`) | Building and testing **until the dashboard signs Phantom transactions** | An in-memory copy of the program's rules (`src/chain/fakeChain.ts`). `POST /groups` and `/stakes` create the group and stake on the user's behalf; slashes and settlement get `mock_…` signatures. Rebuilt from MongoDB on restart, so redeploys keep working |
 | `devnet` | The real thing | Xayden's program via Anchor (deployed). Needs `PROGRAM_ID`, the funded oracle key, and the dashboard creating groups and staking on-chain |
 
+## Penalty precision (`PENALTY_PRECISION`)
+
+- `seconds` (default): usage and the allowance are compared in seconds. The cumulative charge for the
+  period is `floor(secondsOver × tariffLamportsPerMinute / 60)` lamports, capped at the stake; each worker
+  tick charges only the unpaid difference (one `slash` per member per tick, never one per second).
+  `rules.allowanceSeconds` (optional, e.g. `30`) sets a finer allowance; `allowanceMinutes` still works.
+- `minutes`: the previous behaviour, `floor(seconds / 60) − allowanceMinutes` whole minutes.
+- `CHAIN_MODE=devnet` always uses `minutes`: the program's `slash(total_minutes_over)` and
+  `allowance_minutes` are whole minutes. Seconds work in `off` and `mock` (FakeChain has `slashToLamports`).
+- `/state` keeps the same keys. In seconds mode `rules.allowanceMinutes`, `usage.minutesOver`,
+  `usage.minutesCharged` and `penalty.minutes` can be fractional (2 decimals, display only); lamports are exact.
+
+### For Dev 2 (program): to charge by the second on devnet
+
+Add a cumulative, lamport-based slash next to the current one (same oracle check, same "only the
+difference" rule, so resends stay harmless):
+
+```rust
+pub fn slash_lamports(ctx: Context<Slash>, total_lamports_owed: u64) -> Result<()> {
+    let m = &mut ctx.accounts.member;
+    let delta = total_lamports_owed.saturating_sub(m.total_slashed);
+    let amount = delta.min(m.balance);
+    m.balance -= amount;
+    m.total_slashed += amount;
+    ctx.accounts.group.penalty_pool += amount;
+    // emit the same Slashed event with lamports = amount
+    Ok(())
+}
+```
+
+Optional: `allowance_seconds: u32` on `Group` (today the backend keeps sub-minute allowances off-chain).
+Then `AnchorChain.slashToLamports` calls it, and devnet gets second precision with no other backend change.
+Dev 1: the dashboard can show fractional minutes (e.g. "0.32 min") or convert `minutes × 60` to seconds.
+
 ## Status (Checkpoint 4)
 
 | Piece | Status |
