@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.8: leaderboard rows include exact `blockedSeconds`. v0.7: `tracker.idle` in /state, `blocklist.steamGames` documented. v0.6: missed check-ins and the settle window. v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
+# Interface Contract (draft v0.9: `chargeUnitSecs` (groups charged every 5 s), `penalties[].seconds`. v0.8: leaderboard rows include exact `blockedSeconds`. v0.7: `tracker.idle` in /state, `blocklist.steamGames` documented. v0.6: missed check-ins and the settle window. v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -96,6 +96,7 @@ Called **after** the creator's `create_group` transaction confirms.
 - **`mock` / `off` mode:** `groupPda`, `groupSeed`, and `createSignature` are optional (in `mock` the backend creates the group on the fake chain).
 - `autoSettle` (optional, default `true`): `false` means the backend **never settles** this group, so after `periodEnd + grace_secs` members use `emergency_refund`. For the refund demo only.
 - `graceSecs` (optional, **`mock` mode only**; default 600): the settle window. In `devnet` it's read from the chain. Use **600**: the backend settles about 30 s after `periodEnd`, and a window shorter than ~90 s logs a warning.
+- `chargeUnitSecs` (optional, `5` or `60`, default `60`): seconds per charge. With `5`, the group is charged for every full 5 s over the allowance, and the **on-chain tariff is lamports per 5 s**: the dashboard sends `create_group` with `round(tariffPerMinute / 12)`, and the backend reports `tariffLamportsPerMinute = onchain × 12` (e.g. 0.01 SOL/min → 833,333 lamports per 5 s → 9,999,996 per minute). `slash` then takes cumulative **5 s units** over. The program is unchanged: it only multiplies units by its tariff. Groups made before v0.9 have no field and are charged per minute.
 - `blocklist` is optional; the backend uses the default list from section 5. Blocklist entries may be `{ match, label }` objects or plain strings (label = match).
 ```json
 // request
@@ -151,7 +152,7 @@ type GroupState = {
     periodStart: number;
     periodEnd: number;
     demoMode: boolean;
-    rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
+    rules: { allowanceMinutes: number; tariffLamportsPerMinute: number; chargeUnitSecs: number }; // seconds per charge: 60, 5, or 1 (PENALTY_PRECISION=seconds, mock/off only)
     blocklist: Blocklist;               // section 5
     settlement: Settlement | null;      // null until the period ends and the backend settles
     settleDeadline: number | null;      // ms = periodEnd + grace_secs. Settle must land before this; after it, refunds open
@@ -200,7 +201,8 @@ type Penalty = {
   wallet: string;                       // who was charged (the SOL goes into the group's pool)
   displayName: string;
   app: string;                          // what they were on; "Tracker offline" for missed check-ins
-  minutes: number;
+  minutes: number;                      // may be fractional (5 s = 0.08) in 5 s groups; prefer `seconds`
+  seconds: number;                      // over-allowance seconds this penalty charges for
   lamports: number;                     // estimate while pending; the amount actually charged once confirmed
   status: "pending" | "sent" | "confirmed" | "failed";
   signature: string | null;
@@ -262,7 +264,7 @@ Tracker re-fetches this every few minutes (or on each report response, stretch).
 - Usage outside `periodStart`–`periodEnd` is stored but not charged.
 
 ### Winner-takes-pool (backend rules)
-- Each penalty is sent as `slash(totalMinutesOver)` (cumulative, so resends are harmless). The SOL moves from the member's stake into the group's pool inside the vault; nobody's wallet changes yet.
+- Each penalty is sent as `slash(totalMinutesOver)` (cumulative charge units: minutes, or 5 s units when `chargeUnitSecs` is 5; resends are harmless). The SOL moves from the member's stake into the group's pool inside the vault; nobody's wallet changes yet.
 - Members who haven't staked on-chain can't be charged (nothing to take) and can't win.
 - **Winner:** at least 30 s after `periodEnd`, the member(s) **with the lowest `blockedSeconds` among staked members** win the whole pool. Exact ties split it equally; the leftover lamport goes to the lowest public key (same as the program). The backend then calls `settle`.
 - **Settle window:** the program only accepts `settle` while `periodEnd <= now < settleDeadline`. If the backend can't settle in time (or `autoSettle` is `false`), `settlement.status` becomes `failed` and members get their original deposits back with `emergency_refund` after `settleDeadline`.

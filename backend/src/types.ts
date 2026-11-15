@@ -65,6 +65,9 @@ export interface GroupDoc {
   createdAt: number;
   graceSecs?: number | null; // settle window length: settle must happen before periodEnd + graceSecs
   autoSettle?: boolean; // false = backend never settles (refund demo); missing = true
+  // Seconds per program charge unit. The program's `slash` counts units ("minutes" in its names) and
+  // its tariff is lamports per unit. 5 = charged every 5 s over; missing = 60 (groups made before v0.9).
+  chargeUnitSecs?: number;
   onchain?: { penaltyPool: number; settled: boolean; syncedAt: number } | null;
   settlement?: Settlement | null;
 }
@@ -132,9 +135,9 @@ export interface PenaltyDoc {
   app: string;
   minutes: number;
   lamports: number; // estimate until confirmed, then the amount actually charged on-chain
-  totalMinutesOver: number; // cumulative target sent to `slash` (makes resends safe)
+  totalMinutesOver: number; // cumulative charge units sent to `slash` (minutes, or 5 s units; makes resends safe)
+  seconds?: number; // over-allowance seconds this penalty charges for (second-precision and 5 s unit groups)
   // Second-precision penalties only (PENALTY_PRECISION=seconds):
-  seconds?: number; // over-allowance seconds this penalty charges for
   totalSecondsOver?: number; // cumulative over-allowance seconds at creation
   totalLamportsOwed?: number; // cumulative lamports target sent to slashToLamports (makes resends safe)
   status: PenaltyStatus;

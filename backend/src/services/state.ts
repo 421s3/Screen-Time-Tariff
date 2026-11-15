@@ -10,7 +10,7 @@ import { ApiError } from "../errors.js";
 import type { Blocklist, MatchType, PenaltyStatus, SettlementStatus } from "../types.js";
 import { explorerUrlFor } from "../util.js";
 import { OFFLINE_APP } from "./offline.js";
-import { allowanceSecondsOf, chargesBySecond, toMinutes } from "./penalties.js";
+import { allowanceSecondsOf, chargeUnitSecsOf, chargesBySecond, toMinutes } from "./penalties.js";
 import { blockedUsage, isStaked } from "./usage.js";
 
 export interface MemberState {
@@ -41,6 +41,7 @@ export interface PenaltyState {
   app: string;
   minutes: number;
   lamports: number;
+  seconds: number; // over-allowance seconds this penalty charges for (minutes × 60 for per-minute groups)
   status: PenaltyStatus;
   signature: string | null;
   explorerUrl: string | null;
@@ -69,7 +70,7 @@ export interface GroupState {
     periodStart: number;
     periodEnd: number;
     demoMode: boolean;
-    rules: { allowanceMinutes: number; tariffLamportsPerMinute: number };
+    rules: { allowanceMinutes: number; tariffLamportsPerMinute: number; chargeUnitSecs: number };
     blocklist: Blocklist;
     settlement: SettlementState | null;
     settleDeadline: number | null; // ms; settle must happen before this, then emergency_refund opens
@@ -95,6 +96,10 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
   const bySecond = chargesBySecond();
   const allowanceSeconds = allowanceSecondsOf(group.rules);
   const allowanceMinutes = bySecond ? toMinutes(allowanceSeconds) : group.rules.allowanceMinutes;
+  // Seconds per charge: 1 when charged by the second, else the group's unit (5 s or 60 s)
+  const unitSecs = chargeUnitSecsOf(group);
+  const chargeUnitSecs = bySecond ? 1 : unitSecs;
+  const fineUnits = bySecond || unitSecs !== 60; // minute values may be fractional
 
   const members: MemberState[] = group.members.map((m) => {
     const byApp = usage
@@ -128,12 +133,14 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       usage: {
         blockedSeconds,
         blockedMinutes,
-        minutesOver: bySecond
+        minutesOver: fineUnits
           ? toMinutes(Math.max(0, blockedSeconds - allowanceSeconds))
           : Math.max(0, blockedMinutes - allowanceMinutes),
         minutesCharged: bySecond
           ? toMinutes(paid.reduce((sum, p) => sum + (p.seconds ?? p.minutes * 60), 0))
-          : (chain?.minutesCharged ?? paid.reduce((sum, p) => sum + p.minutes, 0)),
+          : chain
+            ? toMinutes(chain.minutesCharged * unitSecs) // the program counts charge units
+            : toMinutes(paid.reduce((sum, p) => sum + (p.seconds ?? p.minutes * 60), 0)),
         // Already included in blockedSeconds and byApp; shown separately so the UI can call it out
         offlineMinutes: Math.floor((byApp.find((u) => u.app === OFFLINE_APP)?.seconds ?? 0) / 60),
         byApp,
@@ -189,7 +196,7 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       periodStart,
       periodEnd,
       demoMode,
-      rules: { allowanceMinutes, tariffLamportsPerMinute },
+      rules: { allowanceMinutes, tariffLamportsPerMinute, chargeUnitSecs },
       blocklist: group.blocklist,
       settlement: settlement
         ? {
@@ -212,6 +219,7 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
       app: p.app,
       minutes: p.minutes,
       lamports: p.lamports,
+      seconds: p.seconds ?? Math.round(p.minutes * 60),
       status: p.status,
       signature: p.signature,
       explorerUrl: explorerUrlFor(p.signature),

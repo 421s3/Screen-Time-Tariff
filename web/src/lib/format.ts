@@ -41,6 +41,18 @@ export function fmtClock(totalSeconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
 }
 
+/** Lamports per charge: 5 s groups have the on-chain tariff = per-minute tariff / 12 (contract v0.9). */
+export function tariffPerCharge(tariffLamportsPerMinute: number, chargeUnitSecs = 60): number {
+  return chargeUnitSecs === 60
+    ? tariffLamportsPerMinute
+    : Math.max(1, Math.round((tariffLamportsPerMinute * chargeUnitSecs) / 60))
+}
+
+/** "every 5 s" / "per full minute" */
+export function chargeEvery(chargeUnitSecs = 60): string {
+  return chargeUnitSecs >= 60 ? 'per full minute' : `every ${chargeUnitSecs} s`
+}
+
 export function ordinal(n: number): string {
   const v = n % 100
   const suffix = v >= 11 && v <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
