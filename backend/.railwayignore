@@ -1,0 +1,7 @@
+# Never upload secrets or local installs with `railway up` (config comes from Railway variables)
+.env
+.env.*
+!.env.example
+keys/
+node_modules/
+*.log
