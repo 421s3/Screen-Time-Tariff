@@ -5,23 +5,31 @@ import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
 import { restartDemo } from '../api/mockApi'
 import { DEMO_GROUP_ID, USE_MOCK } from '../config'
 import { shortAddr } from '../lib/format'
+import { useCurrentGroupId } from '../lib/currentGroup'
 import { Mascot } from './Mascot'
 import { WalletBalance } from './WalletBalance'
 
-const links = [
-  { to: '/', label: 'Home', end: true },
-  { to: '/create', label: 'Create' },
-  { to: '/join', label: 'Join' },
-  { to: `/group/${DEMO_GROUP_ID}/stake`, label: 'Stake' },
-  { to: `/group/${DEMO_GROUP_ID}/pair`, label: 'Pair tracker' },
-  { to: `/group/${DEMO_GROUP_ID}`, label: 'Dashboard', end: true },
-  { to: `/group/${DEMO_GROUP_ID}/results`, label: 'Results' },
-]
+function navLinks(groupId: string | null) {
+  const links = [
+    { to: '/', label: 'Home', end: true },
+    { to: '/create', label: 'Create' },
+    { to: '/join', label: 'Join' },
+  ]
+  if (!groupId) return links // real backend, no group yet: create or join first
+  return [
+    ...links,
+    { to: `/group/${groupId}/stake`, label: 'Stake' },
+    { to: `/group/${groupId}/pair`, label: 'Pair tracker' },
+    { to: `/group/${groupId}`, label: 'Dashboard', end: true },
+    { to: `/group/${groupId}/results`, label: 'Results' },
+  ]
+}
 
 export function Layout() {
   const { publicKey } = useWallet()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const links = navLinks(useCurrentGroupId())
   return (
     <div className="mx-auto min-h-screen max-w-6xl px-4 pb-16">
       <header className="flex flex-wrap items-center justify-between gap-3 py-4">
