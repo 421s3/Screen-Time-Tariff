@@ -30,17 +30,50 @@ export interface PenaltyInput {
   stakedLamports: number;
 }
 
-/** Pure penalty math. Returns null when nothing new is owed (or there's no stake left to take). */
+/** Pure penalty math, per whole minute. Returns null when nothing new is owed (or there's no stake left to take). */
 export function computePenalty(i: PenaltyInput): { minutes: number; lamports: number } | null {
-  const blockedMinutes = Math.floor(i.blockedSeconds / 60);
-  const minutesOver = Math.max(0, blockedMinutes - i.allowanceMinutes);
-  const minutes = minutesOver - i.reservedMinutes;
-  if (minutes <= 0) return null;
-  const remainingStake = Math.max(0, i.stakedLamports - i.reservedLamports);
-  const lamports = Math.min(minutes * i.tariffLamportsPerMinute, remainingStake);
-  if (lamports <= 0) return null;
-  return { minutes, lamports };
+  const owed = computeUnitPenalty({
+    blockedSeconds: i.blockedSeconds,
+    allowanceSeconds: i.allowanceMinutes * 60,
+    unitSecs: 60,
+    tariffLamportsPerUnit: i.tariffLamportsPerMinute,
+    reservedUnits: i.reservedMinutes,
+    reservedLamports: i.reservedLamports,
+    stakedLamports: i.stakedLamports,
+  });
+  return owed && { minutes: owed.units, lamports: owed.lamports };
 }
+
+export interface UnitPenaltyInput {
+  blockedSeconds: number;
+  allowanceSeconds: number;
+  unitSecs: number; // seconds per program charge unit (60, or 5 for groups charged every 5 s)
+  tariffLamportsPerUnit: number; // the on-chain tariff
+  reservedUnits: number;
+  reservedLamports: number;
+  stakedLamports: number;
+}
+
+/**
+ * Whole-unit penalty math, matching the program's `slash`: units over = floor(secondsOver / unitSecs).
+ * For unitSecs = 60 that is floor(blocked / 60) − allowanceMinutes, same as before.
+ */
+export function computeUnitPenalty(i: UnitPenaltyInput): { units: number; totalUnitsOver: number; lamports: number } | null {
+  const totalUnitsOver = Math.floor(Math.max(0, Math.floor(i.blockedSeconds) - i.allowanceSeconds) / i.unitSecs);
+  const units = totalUnitsOver - i.reservedUnits;
+  if (units <= 0) return null;
+  const remainingStake = Math.max(0, i.stakedLamports - i.reservedLamports);
+  const lamports = Math.min(units * i.tariffLamportsPerUnit, remainingStake);
+  if (lamports <= 0) return null;
+  return { units, totalUnitsOver, lamports };
+}
+
+/** Seconds per charge unit for a group (60 for groups made before 5 s charging). */
+export const chargeUnitSecsOf = (group: { chargeUnitSecs?: number }): number => group.chargeUnitSecs ?? 60;
+
+/** The on-chain tariff (lamports per charge unit), from the API's lamports per minute. */
+export const tariffPerUnit = (tariffLamportsPerMinute: number, unitSecs: number): number =>
+  unitSecs === 60 ? tariffLamportsPerMinute : Math.max(1, Math.round((tariffLamportsPerMinute * unitSecs) / 60));
 
 export interface SecondPenaltyInput {
   blockedSeconds: number;
@@ -92,7 +125,6 @@ async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<
   for (const member of group.members) {
     const mine = usage.filter((u) => u.wallet === member.wallet);
     const r = reserved.find((x) => x._id === member.wallet);
-    const reservedMinutes = r?.minutes ?? 0;
     const blockedSeconds = mine.reduce((sum, u) => sum + u.seconds, 0);
     // Members who haven't staked have nothing to take, so no penalty is created for them
     const stakedLamports = member.onchain?.deposited ?? member.stakedLamports;
@@ -132,25 +164,31 @@ async function penaltiesForGroup(group: WithId<GroupDoc>, now: number): Promise<
       continue;
     }
 
-    const owed = computePenalty({
+    // Whole charge units, as the program's `slash` counts them (minutes, or 5 s units)
+    const unitSecs = chargeUnitSecsOf(group);
+    const reservedUnits = Math.round((r?.seconds ?? 0) / unitSecs);
+    const owed = computeUnitPenalty({
       blockedSeconds,
-      allowanceMinutes: group.rules.allowanceMinutes,
-      tariffLamportsPerMinute: group.rules.tariffLamportsPerMinute,
-      reservedMinutes,
+      allowanceSeconds: allowanceSecondsOf(group.rules),
+      unitSecs,
+      tariffLamportsPerUnit: tariffPerUnit(group.rules.tariffLamportsPerMinute, unitSecs),
+      reservedUnits,
       reservedLamports: r?.lamports ?? 0,
       stakedLamports,
     });
     if (!owed) continue;
 
+    const seconds = owed.units * unitSecs;
     const penalty: PenaltyDoc = {
       _id: new ObjectId(),
       groupId: group._id,
       wallet: member.wallet,
       displayName: member.displayName,
       app,
-      minutes: owed.minutes,
+      minutes: unitSecs === 60 ? owed.units : toMinutes(seconds),
       lamports: owed.lamports,
-      totalMinutesOver: reservedMinutes + owed.minutes,
+      totalMinutesOver: owed.totalUnitsOver, // cumulative units: what `slash` takes
+      ...(unitSecs === 60 ? {} : { seconds }),
       status: "pending",
       signature: null,
       attempts: 0,

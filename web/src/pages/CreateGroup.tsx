@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { api } from '../api'
 import { USE_MOCK } from '../config'
 import { PERIOD_PRESETS, type Blocklist } from '../types'
-import { parseSolToLamports } from '../lib/format'
+import { fmtSol, parseSolToLamports, tariffPerCharge } from '../lib/format'
 import { rememberGroup } from '../lib/currentGroup'
 import { Card, ErrorBox, WalletGate, btnPrimary, inputCls } from '../components/ui'
 
@@ -129,6 +129,11 @@ export function CreateGroup() {
               value={tariffSol}
               onChange={(e) => setTariffSol(e.target.value)}
             />
+            {parseSolToLamports(tariffSol) !== null && (
+              <span className="text-xs text-white/50">
+                Charged every 5 s over: ≈ {fmtSol(tariffPerCharge(parseSolToLamports(tariffSol)!, 5))} each
+              </span>
+            )}
           </label>
         </Card>
 

@@ -7,7 +7,7 @@ import { useGroupState } from '../api/hooks'
 import { ApiError } from '../api/base'
 import { forgetGroup } from '../lib/currentGroup'
 import type { GroupState, Member, Penalty } from '../types'
-import { fmtClock, fmtCountdown, fmtDuration, fmtSol, shortAddr } from '../lib/format'
+import { chargeEvery, fmtClock, fmtCountdown, fmtDuration, fmtSol, shortAddr, tariffPerCharge } from '../lib/format'
 import { Mascot } from '../components/Mascot'
 import { PenaltyFeed } from '../components/PenaltyFeed'
 import { ActivityBadge } from '../components/Activity'
@@ -40,6 +40,8 @@ export function Dashboard() {
 
   // Mascot popup whenever a new penalty lands in the pool (not on first load).
   const lastSeen = useRef<string | null>(null)
+  // 5 s groups land a penalty every few seconds: pop the mascot at most every 30 s
+  const lastPopupAt = useRef(0)
   const [popup, setPopup] = useState<Penalty | null>(null)
   const newest = state.data?.penalties[0] ?? null
   const newestId = newest?.penaltyId ?? null
@@ -48,6 +50,8 @@ export function Dashboard() {
     const previous = lastSeen.current
     lastSeen.current = newestId
     if (previous === null || previous === newestId) return
+    if (Date.now() - lastPopupAt.current < 30_000) return
+    lastPopupAt.current = Date.now()
     setPopup(newest)
     toast(`${newest.displayName} paid ${fmtSol(newest.lamports)} into the pool (${newest.app})`)
     const t = setTimeout(() => setPopup(null), 4500)
@@ -99,7 +103,7 @@ export function Dashboard() {
           <h2 className="text-2xl font-bold">{group.name}</h2>
           <p className="text-sm text-white/60">
             Invite code <span className="font-mono font-semibold tracking-widest">{group.joinCode}</span> ·{' '}
-            {group.rules.allowanceMinutes} min allowance · {fmtSol(group.rules.tariffLamportsPerMinute)} per full minute over
+            {group.rules.allowanceMinutes} min allowance · {fmtSol(group.rules.tariffLamportsPerMinute)}/min, charged {chargeEvery(group.rules.chargeUnitSecs)} over
             goes into the pool
             {group.blocklist.steamGames && ' · Steam games count'}
           </p>
@@ -148,7 +152,8 @@ export function Dashboard() {
                   rank={rankOf.get(m.wallet) ?? null}
                   leading={leadingSet.has(m.wallet)}
                   allowance={group.rules.allowanceMinutes}
-                  tariff={group.rules.tariffLamportsPerMinute}
+                  tariff={tariffPerCharge(group.rules.tariffLamportsPerMinute, group.rules.chargeUnitSecs)}
+                  chargeUnitSecs={group.rules.chargeUnitSecs ?? 60}
                   isMe={m.wallet === wallet}
                   now={now}
                   active={group.status === 'active'}
@@ -262,6 +267,7 @@ function MemberCard({
   leading,
   allowance,
   tariff,
+  chargeUnitSecs,
   isMe,
   now,
   active,
@@ -270,7 +276,8 @@ function MemberCard({
   rank: number | null
   leading: boolean
   allowance: number
-  tariff: number
+  tariff: number // lamports per charge
+  chargeUnitSecs: number
   isMe: boolean
   now: number
   active: boolean
@@ -323,6 +330,7 @@ function MemberCard({
           usedSeconds={liveSeconds}
           allowanceSeconds={allowance * 60}
           tariffLamports={tariff}
+          chargeUnitSecs={chargeUnitSecs}
           charging={active && m.staked}
         />
       </div>
