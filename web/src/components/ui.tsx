@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { WalletReadyState } from '@solana/wallet-adapter-base'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { fmtClock, fmtSol } from '../lib/format'
 
 export const btnPrimary =
   'inline-flex items-center justify-center rounded-xl bg-violet-500 px-4 py-2 font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50'
@@ -118,40 +119,62 @@ export function WalletGate({
   return <>{children}</>
 }
 
-/** Blocked time vs the group's allowance. Full and red = being charged into the pool. */
+/**
+ * Blocked time vs the group's allowance, ticking per second. Full and red = being charged into the pool.
+ * Charges land per FULL minute over the allowance (the devnet program's `slash` takes whole minutes),
+ * so when over we show a countdown to the next charge instead of a jumping minute count.
+ */
 export function UsageBar({
-  usedMinutes,
-  allowanceMinutes,
+  usedSeconds,
+  allowanceSeconds,
+  tariffLamports,
+  charging,
 }: {
-  usedMinutes: number
-  allowanceMinutes: number
+  usedSeconds: number
+  allowanceSeconds: number
+  tariffLamports: number
+  /** Staked and the period is running: show "next charge in …" when over. */
+  charging: boolean
 }) {
-  const limit = Math.max(1, allowanceMinutes)
-  const pct = Math.min(100, (usedMinutes / limit) * 100)
-  const over = usedMinutes > allowanceMinutes
+  const used = Math.max(0, Math.floor(usedSeconds))
+  const limit = Math.max(1, allowanceSeconds)
+  const pct = Math.min(100, (used / limit) * 100)
+  const over = used > allowanceSeconds
+  const overSeconds = used - allowanceSeconds
+  const nextChargeIn = 60 - (overSeconds % 60)
   return (
     <div>
-      <div className="flex justify-between text-xs text-white/60">
-        <span>
-          {usedMinutes} min / {allowanceMinutes} min allowed
+      <div className="flex justify-between gap-2 text-xs text-white/60">
+        <span className="font-mono tabular-nums">
+          {fmtClock(used)} / {fmtClock(allowanceSeconds)} allowed
         </span>
-        {over && <span className="text-red-300">{Math.round((usedMinutes - allowanceMinutes) * 100) / 100} over</span>}
+        {over ? (
+          <span className="font-mono tabular-nums text-red-300">{fmtClock(overSeconds)} over</span>
+        ) : (
+          <span className="font-mono tabular-nums">{fmtClock(allowanceSeconds - used)} free left</span>
+        )}
       </div>
       <div
         className="mt-1 h-2.5 overflow-hidden rounded-full bg-white/10"
         role="progressbar"
         aria-label="Blocked time used of the allowance"
         aria-valuemin={0}
-        aria-valuemax={allowanceMinutes}
-        aria-valuenow={usedMinutes}
+        aria-valuemax={allowanceSeconds}
+        aria-valuenow={used}
       >
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
+          className={`h-full rounded-full transition-all duration-1000 ease-linear ${
             over ? 'bg-red-400' : pct > 75 ? 'bg-amber-300' : 'bg-emerald-400'
           }`}
           style={{ width: `${pct}%` }}
         />
       </div>
+      {over && charging && (
+        <p className="mt-1 text-xs text-red-200/80">
+          Next −{fmtSol(tariffLamports)} in <span className="font-mono tabular-nums">0:{String(nextChargeIn).padStart(2, '0')}</span>
+          <span className="text-white/40"> · charged per full minute over</span>
+        </p>
+      )}
     </div>
   )
 }

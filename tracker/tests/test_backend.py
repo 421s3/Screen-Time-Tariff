@@ -57,7 +57,7 @@ def test_pair_and_config(backend):
     assert backend.requests[-1][3] == {"code": "482913", "deviceName": "ALICE-LAPTOP"}
     assert "Authorization" not in backend.requests[-1][2]  # pairing is unauthenticated
     api.token = resp["trackerToken"]
-    assert api.get_config()["reportIntervalSec"] == 30
+    assert api.get_config()["reportIntervalSec"] == 1  # near-real-time reporting
     assert backend.requests[-1][2]["Authorization"] == f"Bearer {resp['trackerToken']}"
 
 

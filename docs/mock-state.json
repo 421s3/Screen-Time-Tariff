@@ -168,6 +168,7 @@
     {
       "wallet": "rqMZmzrJczycbBj1Nfhs81tazV3anaGZ2dxtEK8Yuqm",
       "displayName": "Bob",
+      "blockedSeconds": 31,
       "blockedMinutes": 0,
       "rank": 1,
       "leading": true
@@ -175,6 +176,7 @@
     {
       "wallet": "HnxWhh8bo2HXFumxPCJVHBSdrWTpjtSwPJhMjsnmVWos",
       "displayName": "Carol",
+      "blockedSeconds": 95,
       "blockedMinutes": 1,
       "rank": 2,
       "leading": false
@@ -182,6 +184,7 @@
     {
       "wallet": "H9Rje39uEcwMyQYZ946h6ZfhhQjNg5HxegbtgMYu2Uyx",
       "displayName": "Alice",
+      "blockedSeconds": 262,
       "blockedMinutes": 4,
       "rank": 3,
       "leading": false

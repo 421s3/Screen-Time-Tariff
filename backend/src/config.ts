@@ -87,8 +87,8 @@ export const config = {
   offlineGraceSec: env.OFFLINE_GRACE_SEC,
 
   // Fixed rules (contract sections 4 and 6)
-  sampleIntervalSec: 2,
-  reportIntervalSec: 30,
+  sampleIntervalSec: 1,
+  reportIntervalSec: 1, // near-real-time: one batch (or heartbeat) per second per tracker
   idleThresholdSec: 120,
   usageCapSlackSec: 30,
   onlineWindowMs: 90_000,

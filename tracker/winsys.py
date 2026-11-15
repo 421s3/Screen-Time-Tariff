@@ -33,6 +33,17 @@ def single_instance(name: str):
         handle.Close()
 
 
+def get_startup():
+    """The current user's sign-in command for this tracker, or None."""
+    if winreg is None:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_QUERY_VALUE) as k:
+            return winreg.QueryValueEx(k, RUN_VALUE)[0]
+    except OSError:
+        return None
+
+
 def set_startup(command):
     """Add (command) or remove (None) the current user's sign-in entry. Returns whether one existed."""
     if winreg is None:

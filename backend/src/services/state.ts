@@ -75,7 +75,7 @@ export interface GroupState {
     settleDeadline: number | null; // ms; settle must happen before this, then emergency_refund opens
   };
   members: MemberState[];
-  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number; leading: boolean }[];
+  leaderboard: { wallet: string; displayName: string; blockedSeconds: number; blockedMinutes: number; rank: number; leading: boolean }[];
   penalties: PenaltyState[];
   totals: { stakedLamports: number; penaltyPoolLamports: number };
 }
@@ -168,6 +168,7 @@ export async function buildGroupState(groupId: ObjectId, now = Date.now()): Prom
     .map((m, i) => ({
       wallet: m.wallet,
       displayName: m.displayName,
+      blockedSeconds: m.usage.blockedSeconds, // exact; the dashboard shows m:ss
       blockedMinutes: m.usage.blockedMinutes,
       rank: i + 1,
       leading: isLeading(m),

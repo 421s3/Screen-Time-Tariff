@@ -23,7 +23,8 @@ from state import HERE, RESOURCES, PairingState, resolve_api_url
 from usage import UsageAggregator
 
 DEFAULT_BLOCKLIST = RESOURCES / "blocklist.json"
-DEFAULTS = {"sampleIntervalSec": 2.0, "reportIntervalSec": 30.0, "idleThresholdSec": 120.0}
+DEFAULTS = {"sampleIntervalSec": 1.0, "reportIntervalSec": 1.0, "idleThresholdSec": 120.0}
+MAX_RETRY_SEC = 30  # offline: network retries back off up to this; usage is still queued every report
 CONFIG_REFRESH_SEC = 300
 
 
@@ -50,10 +51,10 @@ def parse_args(argv=None):
                    help="start this tracker automatically at Windows sign-in (current user) and exit")
     p.add_argument("--uninstall-startup", action="store_true", help="remove the sign-in entry and exit")
     args = p.parse_args(argv)
-    interval = DEFAULTS["sampleIntervalSec"] if args.interval is None else args.interval
-    report = DEFAULTS["reportIntervalSec"] if args.report_every is None else args.report_every
-    if interval <= 0 or report < interval:
-        p.error("need 0 < --interval <= --report-every")
+    if (args.interval is not None and args.interval <= 0) or (args.report_every is not None and args.report_every <= 0):
+        p.error("--interval and --report-every must be > 0")
+    if args.interval is not None and args.report_every is not None and args.report_every < args.interval:
+        p.error("need --interval <= --report-every")
     return args
 
 
@@ -75,6 +76,24 @@ def fake_samples():
 
 # ---------------------------------------------------------------- backend setup
 
+class PairingError(Exception):
+    """Pairing didn't work; `code` is the backend's error code (or BAD_RESPONSE)."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+def pair_with_code(client, pairing, api_url, code) -> dict:
+    """Exchange a dashboard code for a token and save it (DPAPI). Raises ApiError or PairingError."""
+    resp = client.pair_complete(code, socket.gethostname())
+    if not all(isinstance(resp.get(k), str) and resp[k] for k in ("trackerToken", "wallet", "groupId")):
+        raise PairingError("BAD_RESPONSE", "backend response needs trackerToken, wallet and groupId")
+    pairing.save_pairing(api_url, resp)
+    client.token = resp["trackerToken"]
+    return resp
+
+
 def pair(client, pairing, api_url, code):
     if not code:
         try:
@@ -82,13 +101,11 @@ def pair(client, pairing, api_url, code):
         except EOFError:  # no console to type into (e.g. started at sign-in before pairing)
             sys.exit("Not paired yet. Run once with --pair CODE (code from the dashboard).")
     try:
-        resp = client.pair_complete(code, socket.gethostname())
+        resp = pair_with_code(client, pairing, api_url, code)
     except ApiError as e:
         sys.exit(f"pairing failed: {e.message} ({e.code})")
-    if not all(isinstance(resp.get(k), str) and resp[k] for k in ("trackerToken", "wallet", "groupId")):
-        sys.exit("pairing failed: backend response needs trackerToken, wallet and groupId")
-    pairing.save_pairing(api_url, resp)
-    client.token = resp["trackerToken"]
+    except PairingError as e:
+        sys.exit(f"pairing failed: {e.message}")
     print(f"Paired as {resp.get('displayName')} ({resp.get('wallet')}) in group {resp.get('groupId')}.")
 
 
@@ -125,7 +142,7 @@ def connect(args):
     return client, pairing
 
 
-def queue_for(args, pairing):
+def queue_for(args, pairing, say=print):
     """Each pairing identity gets its own queue folder, so batches recorded while paired as one
     wallet are only ever sent with that wallet's token, never with a later pairing's."""
     root = Path(args.data_dir) / "queue"
@@ -134,8 +151,8 @@ def queue_for(args, pairing):
         for other in sorted(p for p in root.iterdir() if p.is_dir() and p != mine and p.name != "rejected"):
             n = len(Outbox(other))
             if n:
-                print(f"Note: {n} batch(es) queued under a different pairing are kept in {other} "
-                      f"and will be sent if that wallet pairs here again.")
+                say(f"Note: {n} batch(es) queued under a different pairing are kept in {other} "
+                    f"and will be sent if that wallet pairs here again.")
     return Outbox(mine)
 
 
@@ -145,6 +162,12 @@ def startup_command(args) -> str:
     """Command line the sign-in entry runs: this .exe (or python + tracker.py) with the same data dir."""
     target = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, str(Path(__file__).resolve())]
     return " ".join(f'"{a}"' for a in [*target, "--data-dir", str(Path(args.data_dir).resolve())])
+
+
+def instance_lock_name(data_dir) -> str:
+    """One tracker (CLI or GUI) per data dir."""
+    data_key = str(Path(data_dir).resolve()).lower().encode()
+    return "ScreenTimeTariffTracker-" + hashlib.sha256(data_key).hexdigest()[:16]
 
 
 def run(args):
@@ -168,54 +191,99 @@ def run(args):
         return
 
     # Two trackers on one data dir would report the same time twice (e.g. sign-in entry + manual start)
-    data_key = str(Path(args.data_dir).resolve()).lower().encode()
-    with winsys.single_instance("ScreenTimeTariffTracker-" + hashlib.sha256(data_key).hexdigest()[:16]) as ok:
+    with winsys.single_instance(instance_lock_name(args.data_dir)) as ok:
         if not ok:
             sys.exit("Another tracker is already running with this data dir. Close it first.")
         track(args, read_window)
 
 
-def track(args, read_window):
+class Stopped(Exception):
+    """Raised inside the loop when `stop` is set (GUI quit / disconnect)."""
+
+
+class ConsoleUI:
+    """What `track` reports, printed like the CLI always has. The GUI passes its own object."""
+
+    def log(self, text: str) -> None:
+        print(text, flush=True)
+
+    def on_sample(self, sample, match, idle: bool) -> None:
+        pass
+
+    def on_report(self, events: list, totals: dict, status: str, queued: int) -> None:
+        pass
+
+
+def track(args, read_window, ui=None, stop=None, connection=None):
+    """The tracking loop. `ui` gets log lines and events (default: print). `stop` (threading.Event)
+    ends it cleanly with a final batch. `connection` = an already-paired (client, pairing)."""
+    ui = ui or ConsoleUI()
+
+    def pause(seconds):
+        if stop is None:
+            time.sleep(seconds)
+        elif stop.wait(seconds):
+            raise Stopped()
+
     if args.fake:
-        print("*** SYNTHETIC MODE (--fake): usage below is generated, not read from real windows ***", flush=True)
+        ui.log("*** SYNTHETIC MODE (--fake): usage below is generated, not read from real windows ***")
 
     reporter = client = pairing = None
     if args.local:
         config, source = {"blocklist": json.loads(Path(args.blocklist).read_text(encoding="utf-8"))}, "local file"
     else:
-        client, pairing = connect(args)
-        reporter = Reporter(client, queue_for(args, pairing))
+        client, pairing = connection or connect(args)
+        reporter = Reporter(client, queue_for(args, pairing, ui.log), log=ui.log)
         config, source = fetch_config(client, pairing, args.blocklist)
 
     def apply(config):
         cfg = {**DEFAULTS, **{k: config[k] for k in DEFAULTS if config.get(k)}}
         blocklist = Blocklist.from_dict(config["blocklist"])
+        interval = float(args.interval or cfg["sampleIntervalSec"])
+        # A report never comes more often than a sample (e.g. --interval 2 with the 1 s default report)
+        report_every = max(interval, float(args.report_every or cfg["reportIntervalSec"]))
         return (blocklist.without_titles() if args.games_only else blocklist,
-                float(args.interval or cfg["sampleIntervalSec"]),
-                float(args.report_every or cfg["reportIntervalSec"]),
-                float(cfg["idleThresholdSec"]))
+                interval, report_every, float(cfg["idleThresholdSec"]))
 
     blocklist, interval, report_every, idle_after = apply(config)
-    print(f"Blocklist from {source}: {len(blocklist.processes)} processes, "
-          f"Steam games {'on' if blocklist.steam_games else 'off'}, "
-          f"{len(blocklist.titles)} browser titles{' (off: --games-only)' if args.games_only else ''}. "
-          f"Sampling every {interval:g}s, reporting every {report_every:g}s. Ctrl+C to stop.", flush=True)
+    ui.log(f"Blocklist from {source}: {len(blocklist.processes)} processes, "
+           f"Steam games {'on' if blocklist.steam_games else 'off'}, "
+           f"{len(blocklist.titles)} browser titles{' (off: --games-only)' if args.games_only else ''}. "
+           f"Sampling every {interval:g}s, reporting every {report_every:g}s. Ctrl+C to stop.")
 
     agg = UsageAggregator(max_gap=interval * 3)
     resync_after = interval * 3  # a longer gap means sleep/hibernate or a stall, not a slow tick
     start = next_tick = time.monotonic()
     next_report, next_config = start + report_every, start + CONFIG_REFRESH_SEC
     last_line = None
+    # Offline backoff: while sends fail, usage is still written to the queue every report, but the
+    # network is only retried after 1, 2, 4 ... MAX_RETRY_SEC seconds (no stall every second)
+    retry = {"at": 0.0, "delay": report_every}
 
     def report(final=False):
         events = agg.drain()
         idle = (not args.fake) and idle_seconds() >= idle_after
         batch = make_batch(events, None if final else agg.current, idle)
         totals = {k: round(v, 1) for k, v in sorted(agg.totals.items())}
-        status = reporter.submit(batch) if reporter else "local only"
-        print(f"--- batch {json.dumps(events)}  totals {json.dumps(totals)}  "
-              f"uptime {time.monotonic() - start:.0f}s  [{status}]"
-              + ("  (SYNTHETIC)" if args.fake else ""), flush=True)
+        now_m = time.monotonic()
+        if not reporter:
+            status = "local only"
+        elif not final and now_m < retry["at"]:
+            if events:
+                reporter.outbox.put(batch)  # on disk now, sent with the next successful flush
+            status = (f"offline (retrying in {retry['at'] - now_m:.0f}s); "
+                      f"{len(reporter.outbox)} batch(es) queued")
+        else:
+            status = reporter.submit(batch)
+            if status.startswith("offline"):
+                retry["delay"] = min(MAX_RETRY_SEC, retry["delay"] * 2) if retry["at"] else report_every
+                retry["at"] = time.monotonic() + retry["delay"]
+            else:
+                retry["at"], retry["delay"] = 0.0, report_every
+        ui.log(f"--- batch {json.dumps(events)}  totals {json.dumps(totals)}  "
+               f"uptime {time.monotonic() - start:.0f}s  [{status}]"
+               + ("  (SYNTHETIC)" if args.fake else ""))
+        ui.on_report(events, totals, status, len(reporter.outbox) if reporter else 0)
 
     def save_on_exit():
         """Console closed / sign-out / shutdown: ~5 s to live, so queue to disk, no network."""
@@ -241,9 +309,10 @@ def track(args, read_window):
             if idle and match and match.match_type == "process":
                 match = None  # AFK in a game/app isn't charged; a video in a browser tab still is
             agg.record(now, match, int(time.time() * 1000))
+            ui.on_sample(sample, match, idle)
             line = describe(sample, match) + ("  (idle)" if idle else "")
             if args.verbose or line != last_line:
-                print(f"{datetime.now():%H:%M:%S}  {line}", flush=True)
+                ui.log(f"{datetime.now():%H:%M:%S}  {line}")
                 last_line = line
             if now >= next_report:
                 report()
@@ -257,8 +326,8 @@ def track(args, read_window):
                 agg.record(time.monotonic(), match, int(time.time() * 1000), cap=False)
             # Sleep to a fixed schedule so slow polls don't make the loop drift
             next_tick += interval
-            time.sleep(max(0.0, next_tick - time.monotonic()))
-    except KeyboardInterrupt:
+            pause(max(0.0, next_tick - time.monotonic()))
+    except (KeyboardInterrupt, Stopped):
         agg.record(time.monotonic(), None, int(time.time() * 1000))  # credit the final partial interval
         report(final=True)
     except AuthFailed:

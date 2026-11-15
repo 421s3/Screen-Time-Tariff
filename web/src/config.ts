@@ -12,7 +12,7 @@ export const PROGRAM_ID: string = import.meta.env.VITE_PROGRAM_ID ?? ''
 export const DEMO_GROUP_ID = '6734f0c2a1b2c3d4e5f60718'
 
 // Polling interval for dashboard data (poll the backend, not the public devnet RPC).
-export const POLL_MS = 2000
+export const POLL_MS = 1000
 
 // Where the Windows tracker .exe is downloaded from (Dev 3 publishes it as a GitHub Release asset).
 export const TRACKER_DOWNLOAD_URL: string =
