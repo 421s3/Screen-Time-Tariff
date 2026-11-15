@@ -434,6 +434,30 @@ try {
   assert.equal((await state(lateId)).group.settlement.status, "failed", "not retried");
   ok("settle window closed: settlement marked failed, not sent, not retried");
 
+  // Restart in mock mode: a fresh fake chain rebuilt from MongoDB must match the original
+  {
+    const { PublicKey } = await import("@solana/web3.js");
+    const { IDL_PROGRAM_ID } = await import("../src/chain/index.js");
+    await runWorkerTick(lateEnd + 120_000); // make sure the latest chain state is synced into the DB
+    const docs = await db.groups().find({ groupPda: { $ne: null } }).toArray();
+    const sample = await fake.fetchGroup(docs[0]!.groupPda!);
+    const fresh = new FakeChain(new PublicKey(config.programId ?? IDL_PROGRAM_ID), sample!.oracle);
+    fresh.nowSec = fake.nowSec;
+    assert.ok(fresh.restore(docs, config.graceSecs) >= 5);
+    for (const g of docs) {
+      assert.deepEqual(await fresh.fetchGroup(g.groupPda!), await fake.fetchGroup(g.groupPda!), `group ${g.name}`);
+      const wallets = g.members.map((m) => m.wallet);
+      assert.deepEqual(await fresh.fetchMembers(g.groupPda!, wallets), await fake.fetchMembers(g.groupPda!, wallets), `members of ${g.name}`);
+    }
+    // The still-running offline group can be slashed on the restored chain
+    const offlinePda = (await state(offlineId)).group.groupPda as string;
+    const before = (await fresh.fetchMembers(offlinePda, [dana])).get(dana)!;
+    await fresh.slash(offlinePda, dana, before.minutesCharged + 1);
+    const after = (await fresh.fetchMembers(offlinePda, [dana])).get(dana)!;
+    assert.equal(after.totalSlashed - before.totalSlashed, rules.tariffLamportsPerMinute);
+  }
+  ok("mock restart: chain rebuilt from MongoDB matches exactly, and slashing still works");
+
   // ---- Second precision end to end (CHAIN_MODE=mock, PENALTY_PRECISION=seconds) ----
   {
     config.penaltyPrecision = "seconds";

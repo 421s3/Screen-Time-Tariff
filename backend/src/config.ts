@@ -10,6 +10,8 @@ const Env = z.object({
   SOLANA_RPC_URL: z.string().default("https://api.devnet.solana.com"),
   PROGRAM_ID: z.string().default(""),
   ORACLE_KEYPAIR_PATH: z.string().default("./keys/oracle.json"),
+  // For hosts where files are awkward: the JSON array from keys/oracle.json. Wins over the file.
+  ORACLE_SECRET_KEY: z.string().optional(),
   WORKER_INTERVAL_SEC: z.coerce.number().positive().default(30),
   // off = calculate penalties only (CP1); mock = in-memory copy of the program; devnet = real program
   CHAIN_MODE: z.enum(["off", "mock", "devnet"]).default("off"),
@@ -39,18 +41,33 @@ function validPubkey(value: string): string | null {
   }
 }
 
-function loadOracle(path: string): Keypair | null {
-  if (!existsSync(path)) return null;
+function keypairFromJson(json: string): Keypair {
+  const secret = JSON.parse(json) as unknown;
+  if (!Array.isArray(secret) || secret.length !== 64) throw new Error("expected a JSON array of 64 numbers");
+  return Keypair.fromSecretKey(Uint8Array.from(secret as number[]));
+}
+
+/** The oracle key, from ORACLE_SECRET_KEY if set, else the keypair file. Never logs the key itself. */
+function loadOracle(): { keypair: Keypair | null; source: string } {
+  if (env.ORACLE_SECRET_KEY?.trim()) {
+    try {
+      return { keypair: keypairFromJson(env.ORACLE_SECRET_KEY.trim()), source: "ORACLE_SECRET_KEY" };
+    } catch (e) {
+      console.error(`[config] ORACLE_SECRET_KEY is set but invalid: ${(e as Error).message}`);
+      process.exit(1);
+    }
+  }
+  const path = env.ORACLE_KEYPAIR_PATH;
+  if (!existsSync(path)) return { keypair: null, source: "none" };
   try {
-    const secret = JSON.parse(readFileSync(path, "utf8")) as number[];
-    return Keypair.fromSecretKey(Uint8Array.from(secret));
+    return { keypair: keypairFromJson(readFileSync(path, "utf8")), source: path };
   } catch (e) {
     console.warn(`[config] could not read oracle keypair at ${path}: ${(e as Error).message}`);
-    return null;
+    return { keypair: null, source: "none" };
   }
 }
 
-const oracle = loadOracle(env.ORACLE_KEYPAIR_PATH);
+const { keypair: oracle, source: oracleSource } = loadOracle();
 
 export const config = {
   port: env.PORT,
@@ -61,6 +78,7 @@ export const config = {
   oracle,
   oraclePubkey: oracle?.publicKey.toBase58() ?? null,
   oracleKeypairPath: env.ORACLE_KEYPAIR_PATH,
+  oracleSource, // "ORACLE_SECRET_KEY", the file path, or "none"
   workerIntervalSec: env.WORKER_INTERVAL_SEC,
   chainMode: env.CHAIN_MODE,
   usageRateCap: env.USAGE_RATE_CAP === "true",
