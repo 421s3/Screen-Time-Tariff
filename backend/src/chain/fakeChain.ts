@@ -111,6 +111,18 @@ export class FakeChain implements Chain {
     return this.signature();
   }
 
+  async slashToLamports(groupPda: string, wallet: string, totalLamports: number): Promise<string> {
+    this.slashCalls++;
+    const g = this.mustGroup(groupPda);
+    if (g.settled) throw new FakeChainError("AlreadySettled");
+    const m = this.mustMember(groupPda, wallet);
+    const amount = Math.min(Math.max(0, totalLamports - m.totalSlashed), m.balance);
+    m.balance -= amount;
+    m.totalSlashed += amount;
+    g.penaltyPool += amount;
+    return this.signature();
+  }
+
   async settle(groupPda: string, winnerWallets: string[]): Promise<string> {
     const g = this.mustGroup(groupPda);
     if (g.settled) throw new FakeChainError("AlreadySettled");

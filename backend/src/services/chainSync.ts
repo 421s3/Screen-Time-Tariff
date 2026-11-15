@@ -71,9 +71,14 @@ export async function syncAndSend(chain: Chain, now = Date.now()): Promise<Penal
       }
 
       let signature = p.signature;
-      if (member.minutesCharged < p.totalMinutesOver) {
+      // Second-precision penalties carry a cumulative lamport target; minute ones a cumulative minute target
+      const byLamports = p.totalLamportsOwed !== undefined && typeof chain.slashToLamports === "function";
+      const needsSend = byLamports ? member.totalSlashed < p.totalLamportsOwed! : member.minutesCharged < p.totalMinutesOver;
+      if (needsSend) {
         try {
-          signature = await chain.slash(pda, p.wallet, p.totalMinutesOver);
+          signature = byLamports
+            ? await chain.slashToLamports!(pda, p.wallet, p.totalLamportsOwed!)
+            : await chain.slash(pda, p.wallet, p.totalMinutesOver);
           await penalties().updateOne({ _id: p._id }, { $set: { status: "sent", signature, updatedAt: now } });
         } catch (e) {
           const attempts = p.attempts + 1;

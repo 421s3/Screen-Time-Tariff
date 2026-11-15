@@ -11,13 +11,16 @@ import { Keypair } from "@solana/web3.js";
 process.env.MONGODB_DB = "screen-time-tariff-smoke";
 process.env.USAGE_RATE_CAP = "false"; // the test sends minutes of usage in milliseconds
 process.env.CHAIN_MODE = "mock";
+// The checks below were written for whole-minute charging (what the devnet program does); the
+// second-precision block near the end switches to "seconds".
+process.env.PENALTY_PRECISION = "minutes";
 const { config } = await import("../src/config.js");
 const db = await import("../src/db.js");
 const { createApp } = await import("../src/app.js");
 const { runWorkerTick } = await import("../src/worker.js");
 const { getChain, setChain, FakeChain } = await import("../src/chain/index.js");
 const { sortByPubkeyBytes, splitPool } = await import("../src/chain/pda.js");
-const { computePenalty } = await import("../src/services/penalties.js");
+const { computePenalty, computeSecondPenalty } = await import("../src/services/penalties.js");
 const { pickWinners } = await import("../src/services/settlement.js");
 const { capEvents, usageBudget } = await import("../src/services/usage.js");
 const { offlineSeconds, OFFLINE_APP } = await import("../src/services/offline.js");
@@ -51,6 +54,37 @@ const newWallet = () => Keypair.generate().publicKey.toBase58();
   assert.deepEqual(computePenalty({ ...base, blockedSeconds: 3600, stakedLamports: 250 }), { minutes: 59, lamports: 250 });
   assert.equal(computePenalty({ ...base, blockedSeconds: 600, stakedLamports: 0 }), null); // not staked
   ok("computePenalty: allowance, already-charged minutes, stake cap, unstaked");
+
+  // Second precision: allowance 60 s, tariff 600,000 lamports/min = 10,000 per second over
+  const sec = { allowanceSeconds: 60, tariffLamportsPerMinute: 600_000, reservedSeconds: 0, reservedLamports: 0, stakedLamports: 10_000_000 };
+  const owedAt = (t: number) => computeSecondPenalty({ ...sec, blockedSeconds: t })?.totalLamportsOwed ?? 0;
+  assert.deepEqual([59, 60, 61, 75, 90, 120].map(owedAt), [0, 0, 10_000, 150_000, 300_000, 600_000]);
+  // Cumulative: each step charges only the unpaid difference, never the whole amount again
+  let reservedLamports = 0;
+  let reservedSeconds = 0;
+  const deltas: number[] = [];
+  for (const t of [59, 60, 61, 75, 90, 120, 120]) {
+    const d = computeSecondPenalty({ ...sec, blockedSeconds: t, reservedLamports, reservedSeconds });
+    deltas.push(d?.lamports ?? 0);
+    if (d) {
+      reservedLamports += d.lamports;
+      reservedSeconds += d.seconds;
+    }
+  }
+  assert.deepEqual(deltas, [0, 0, 10_000, 140_000, 150_000, 300_000, 0]);
+  assert.equal(reservedLamports, 600_000);
+  assert.equal(reservedSeconds, 60);
+  // Integer lamports: 1,000,000/min = 16,666.67 per second, floored on the cumulative total only
+  assert.equal(computeSecondPenalty({ ...sec, tariffLamportsPerMinute: 1_000_000, blockedSeconds: 61 })?.lamports, 16_666);
+  assert.equal(computeSecondPenalty({ ...sec, tariffLamportsPerMinute: 1_000_000, blockedSeconds: 63, reservedLamports: 16_666, reservedSeconds: 1 })?.lamports, 33_334);
+  // 30-second allowance, stake cap, unstaked
+  assert.equal(computeSecondPenalty({ ...sec, allowanceSeconds: 30, blockedSeconds: 45 })?.lamports, 150_000);
+  assert.equal(computeSecondPenalty({ ...sec, blockedSeconds: 120, stakedLamports: 250_000 })?.lamports, 250_000);
+  assert.equal(computeSecondPenalty({ ...sec, blockedSeconds: 600, stakedLamports: 250_000, reservedLamports: 250_000 }), null);
+  assert.equal(computeSecondPenalty({ ...sec, blockedSeconds: 600, stakedLamports: 0 }), null);
+  // No overflow for a big tariff over a long period
+  assert.equal(computeSecondPenalty({ ...sec, tariffLamportsPerMinute: 1e12, stakedLamports: 1e17, blockedSeconds: 86_460 })?.lamports, 1_440_000_000_000_000);
+  ok("computeSecondPenalty: 59/60/61/75/90/120 s, unpaid difference only, integer lamports, 30 s allowance, stake cap, unstaked");
 
   const [w1, w2, w3] = [newWallet(), newWallet(), newWallet()];
   const sorted = sortByPubkeyBytes([w1, w2, w3]);
@@ -399,6 +433,104 @@ try {
   await runWorkerTick(lateEnd + 60_000);
   assert.equal((await state(lateId)).group.settlement.status, "failed", "not retried");
   ok("settle window closed: settlement marked failed, not sent, not retried");
+
+  // ---- Second precision end to end (CHAIN_MODE=mock, PENALTY_PRECISION=seconds) ----
+  {
+    config.penaltyPrecision = "seconds";
+    const precise = new FakeChain(Keypair.generate().publicKey, newWallet()); // fresh chain + clock
+    setChain(precise);
+    const [sam, ned] = [newWallet(), newWallet()];
+    const t = Date.now();
+    const secRules = { allowanceSeconds: 60, tariffLamportsPerMinute: 600_000, periodStart: t - 1000, periodEnd: t + 15 * 60_000, demoMode: true };
+    r = await call("POST", "/groups", { wallet: sam, body: { name: "Seconds", displayName: "Sam", rules: secRules } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const secId = r.body.groupId as string;
+    await call("POST", "/groups/join", { wallet: ned, body: { joinCode: r.body.joinCode, displayName: "Ned" } });
+    await call("POST", `/groups/${secId}/stakes`, { wallet: sam, body: { lamports: 10_000_000, signature: "s-sam" } });
+    const [samToken, nedToken] = [await pair(sam, secId), await pair(ned, secId)]; // Ned never stakes
+    let n = 0;
+    const lastBatch = new Map<string, string>();
+    const play = async (token: string, seconds: number, batchId = `sec-${++n}-0000`) => (lastBatch.set(token, batchId),
+      (await call("POST", "/usage", { token, body: { batchId, sentAt: Date.now(), idle: false, current: null,
+        events: [{ app: "Valorant", matchType: "process", startedAt: Date.now() - seconds * 1000, seconds }] } })).body);
+    const slashed = async () => byName(await state(secId), "Sam").slashedLamports as number;
+
+    // Cumulative usage 59, 60, 61, 75, 90, 120 s (one worker tick after each batch)
+    const expected = [[59, 0], [1, 0], [1, 10_000], [14, 150_000], [15, 300_000], [30, 600_000]] as const;
+    const calls0 = precise.slashCalls;
+    for (const [add, lamports] of expected) {
+      await play(samToken, add);
+      await play(nedToken, add);
+      await runWorkerTick();
+      assert.equal(await slashed(), lamports, `after +${add}s`);
+    }
+    assert.equal(precise.slashCalls - calls0, 4, "one slash per tick that owed something, not one per second");
+    let ss = await state(secId);
+    assert.equal(ss.group.rules.allowanceMinutes, 1);
+    assert.equal(byName(ss, "Sam").usage.blockedSeconds, 120);
+    assert.equal(byName(ss, "Sam").usage.minutesOver, 1);
+    assert.equal(byName(ss, "Sam").usage.minutesCharged, 1);
+    assert.equal(byName(ss, "Ned").slashedLamports, 0, "unstaked member never charged");
+    assert.deepEqual(ss.penalties.filter((p: { displayName: string }) => p.displayName === "Sam").map((p: { lamports: number }) => p.lamports).reverse(),
+      [10_000, 140_000, 150_000, 300_000]);
+    assert.ok(ss.penalties.every((p: { displayName: string }) => p.displayName !== "Ned"));
+
+    // Duplicate of Sam's last batch (same tracker, same batchId) and extra ticks: nothing new
+    r = await call("POST", "/usage", { token: samToken, body: { batchId: lastBatch.get(samToken), sentAt: Date.now(), idle: false, current: null,
+      events: [{ app: "Valorant", matchType: "process", startedAt: Date.now(), seconds: 30 }] } });
+    assert.deepEqual(r.body, { accepted: true, duplicate: true });
+    await runWorkerTick();
+    await runWorkerTick();
+    assert.equal(await slashed(), 600_000);
+    assert.equal(precise.slashCalls - calls0, 4);
+
+    // Retry: the chain fails once; the penalty stays pending and the resend charges the same amount once
+    const realSlash = precise.slashToLamports.bind(precise);
+    let failures = 1;
+    precise.slashToLamports = async (pda: string, w: string, total: number) => {
+      if (failures-- > 0) throw new Error("RPC timeout");
+      return realSlash(pda, w, total);
+    };
+    await play(samToken, 15); // 135 s -> 75 s over -> 750,000 total
+    await runWorkerTick();
+    assert.equal(await slashed(), 600_000, "failed send charges nothing");
+    const pending = await db.penalties().findOne({ groupId: new ObjectId(secId), status: "pending" });
+    assert.equal(pending?.attempts, 1);
+    assert.equal(pending?.totalLamportsOwed, 750_000);
+    await runWorkerTick();
+    await runWorkerTick();
+    assert.equal(await slashed(), 750_000, "retried once, charged once");
+    precise.slashToLamports = realSlash;
+
+    // 30-second allowance: the backend keeps it, the mock program gets 0 whole minutes
+    const t2 = Date.now();
+    r = await call("POST", "/groups", { wallet: ned, body: { name: "Thirty", displayName: "Ned", rules: { ...secRules, allowanceSeconds: 30, periodStart: t2 - 1000 } } });
+    const thirtyId = r.body.groupId as string;
+    ss = await state(thirtyId);
+    assert.equal(ss.group.rules.allowanceMinutes, 0.5);
+    assert.equal((await db.groups().findOne({ _id: new ObjectId(thirtyId) }))?.rules.allowanceSeconds, 30);
+    r = await call("POST", "/groups", { wallet: ned, body: { name: "x", displayName: "Ned", rules: { tariffLamportsPerMinute: 1, periodStart: t2, periodEnd: t2 + 60_000 } } });
+    assert.equal(r.body.error.code, "VALIDATION_ERROR", "an allowance is required");
+
+    // Period expiration: usage that arrives after periodEnd isn't charged
+    const t3 = Date.now();
+    r = await call("POST", "/groups", { wallet: sam, body: { name: "Ends", displayName: "Sam", rules: { ...secRules, periodStart: t3 - 1000, periodEnd: t3 + 1500 }, groupSeed: String(t3) } });
+    const endsId = r.body.groupId as string;
+    await call("POST", `/groups/${endsId}/stakes`, { wallet: sam, body: { lamports: 10_000_000, signature: "s-sam2" } });
+    const endsToken = await pair(sam, endsId);
+    await play(endsToken, 90); // inside the period: 30 s over
+    await new Promise((res) => setTimeout(res, 2000));
+    await play(endsToken, 120); // after periodEnd
+    await runWorkerTick();
+    await runWorkerTick();
+    const ends = await state(endsId);
+    assert.equal(byName(ends, "Sam").usage.blockedSeconds, 90);
+    assert.equal(byName(ends, "Sam").slashedLamports, 300_000, "only the in-period 30 s over");
+
+    setChain(fake);
+    config.penaltyPrecision = "minutes";
+  }
+  ok("second precision: 59/60/61/75/90/120 s via /usage + worker, unpaid difference only, retry, duplicate, unstaked, 30 s allowance, period end");
 
   r = await call("GET", "/groups/000000000000000000000000/state");
   assert.equal(r.status, 404);

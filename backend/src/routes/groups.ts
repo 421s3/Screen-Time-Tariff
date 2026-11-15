@@ -30,13 +30,25 @@ const blocklistInput = z.object({
 
 const rulesInput = z
   .object({
-    allowanceMinutes: z.number().int().min(0),
+    allowanceMinutes: z.number().int().min(0).optional(),
+    // Finer allowance for testing (e.g. 30). Used when penalties are charged by the second.
+    allowanceSeconds: z.number().int().min(0).max(31 * 24 * 3600).optional(),
     tariffLamportsPerMinute: z.number().int().positive(),
     periodStart: z.number().int().positive(),
     periodEnd: z.number().int().positive(),
     demoMode: z.boolean().default(false),
   })
-  .refine((r) => r.periodEnd > r.periodStart, { message: "periodEnd must be after periodStart", path: ["periodEnd"] });
+  .refine((r) => r.periodEnd > r.periodStart, { message: "periodEnd must be after periodStart", path: ["periodEnd"] })
+  .refine((r) => r.allowanceMinutes !== undefined || r.allowanceSeconds !== undefined, {
+    message: "send allowanceMinutes or allowanceSeconds",
+    path: ["allowanceMinutes"],
+  })
+  // The program stores whole minutes; a seconds-only allowance is rounded down for it
+  .transform(({ allowanceSeconds, ...r }) => ({
+    ...r,
+    allowanceMinutes: r.allowanceMinutes ?? Math.floor(allowanceSeconds! / 60),
+    ...(allowanceSeconds !== undefined ? { allowanceSeconds } : {}),
+  }));
 
 const createGroupInput = z.object({
   name: z.string().trim().min(1).max(60),
@@ -95,10 +107,12 @@ async function onchainRules(
     throw new ApiError(409, "WRONG_ORACLE", `The group's oracle must be ${config.oraclePubkey}`);
   }
   const periodEnd = onchain.periodEndSec * 1000;
-  // The chain is the source of truth for the money rules; periodStart only exists off-chain
+  // The chain is the source of truth for the money rules; periodStart only exists off-chain.
+  // It only knows whole minutes, so a finer allowanceSeconds is dropped.
+  const { allowanceSeconds: _dropped, ...rest } = rules;
   return {
     rules: {
-      ...rules,
+      ...rest,
       allowanceMinutes: onchain.allowanceMinutes,
       tariffLamportsPerMinute: onchain.tariffLamportsPerMin,
       periodEnd,
