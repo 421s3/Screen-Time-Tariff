@@ -13,3 +13,10 @@ export const DEMO_GROUP_ID = '6734f0c2a1b2c3d4e5f60718'
 
 // Polling interval for dashboard data (poll the backend, not the public devnet RPC).
 export const POLL_MS = 2000
+
+// Where the Windows tracker .exe is downloaded from (Dev 3 publishes it as a GitHub Release asset).
+export const TRACKER_DOWNLOAD_URL: string =
+  import.meta.env.VITE_TRACKER_URL || 'https://github.com/421s3/SunHacks9.0/releases/latest'
+
+// The tracker's .exe name, used in the copy-paste command on the Pair tracker page.
+export const TRACKER_EXE = 'ScreenTimeTariffTracker.exe'
