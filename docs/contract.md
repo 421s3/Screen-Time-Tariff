@@ -312,7 +312,7 @@ Matching rules (these follow the tracker's implementation in `tracker/blocklist.
 
 ## 6. Solana program (Dev 2)
 
-Program name: `screen_time_tariff`. Anchor 0.31.1. Program ID: `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi` (**reserved, not deployed to devnet yet**; put it in every `.env.example` once it's live). IDL: `program/idl/screen_time_tariff.json`, TypeScript types: `program/idl/screen_time_tariff.ts`.
+Program name: `screen_time_tariff`. Anchor 0.31.1. Program ID: `GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi`, **deployed to devnet** ([Explorer](https://explorer.solana.com/address/GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi?cluster=devnet); deploy tx and smoke-test group in `program/README.md`). Use it as `PROGRAM_ID` / `VITE_PROGRAM_ID`. IDL: `program/idl/screen_time_tariff.json`, TypeScript types: `program/idl/screen_time_tariff.ts`.
 
 **Payout model: winner-takes-pool.** `slash` moves a member's penalty from their stake into the group's penalty pool; the SOL stays in the vault. After the period ends the oracle calls `settle` with the winners, who split the pool. Then every member withdraws their unspent stake plus any prize.
 
