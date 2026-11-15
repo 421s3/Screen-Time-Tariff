@@ -23,9 +23,10 @@ keys/
 *keypair*.json
 id.json
 
-# Tracker local state
-tracker/.tracker_token.json
+# Tracker local state, wherever the tracker or .exe runs (the token lets anyone report as you)
+.tracker_token.json
 tracker/queue/
+releases/**/queue/
 
 # PyInstaller
 *.spec
