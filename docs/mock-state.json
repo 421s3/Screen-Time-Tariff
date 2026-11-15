@@ -13,7 +13,8 @@
     "demoMode": true,
     "rules": {
       "allowanceMinutes": 1,
-      "tariffLamportsPerMinute": 10000000
+      "tariffLamportsPerMinute": 10000000,
+      "chargeUnitSecs": 60
     },
     "blocklist": {
       "processes": [
@@ -198,6 +199,7 @@
       "app": "TikTok",
       "minutes": 1,
       "lamports": 10000000,
+      "seconds": 60,
       "status": "pending",
       "signature": null,
       "explorerUrl": null,
@@ -210,6 +212,7 @@
       "app": "TikTok",
       "minutes": 1,
       "lamports": 10000000,
+      "seconds": 60,
       "status": "confirmed",
       "signature": "2FpbDWDF7aNYov82Vs4dZJyCNsTt8x5HwMTybnoYF7q6sHPvFiqGRyL13DYyAC33GCnderMuSndEcbVx6h4VzMf6",
       "explorerUrl": "https://explorer.solana.com/tx/2FpbDWDF7aNYov82Vs4dZJyCNsTt8x5HwMTybnoYF7q6sHPvFiqGRyL13DYyAC33GCnderMuSndEcbVx6h4VzMf6?cluster=devnet",
@@ -222,6 +225,7 @@
       "app": "YouTube",
       "minutes": 1,
       "lamports": 10000000,
+      "seconds": 60,
       "status": "confirmed",
       "signature": "aRawcHKZs4ZFssGTq2yAa4HsMawXioMzRK5fnXV8mQ88NWtE7d68mubgEAi2KxPY2zsiy7kdpRs4aS4nu9d9K8f",
       "explorerUrl": "https://explorer.solana.com/tx/aRawcHKZs4ZFssGTq2yAa4HsMawXioMzRK5fnXV8mQ88NWtE7d68mubgEAi2KxPY2zsiy7kdpRs4aS4nu9d9K8f?cluster=devnet",

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { WalletReadyState } from '@solana/wallet-adapter-base'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
-import { fmtClock, fmtSol } from '../lib/format'
+import { chargeEvery, fmtClock, fmtSol } from '../lib/format'
 
 export const btnPrimary =
   'inline-flex items-center justify-center rounded-xl bg-violet-500 px-4 py-2 font-semibold text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50'
@@ -121,18 +121,21 @@ export function WalletGate({
 
 /**
  * Blocked time vs the group's allowance, ticking per second. Full and red = being charged into the pool.
- * Charges land per FULL minute over the allowance (the devnet program's `slash` takes whole minutes),
- * so when over we show a countdown to the next charge instead of a jumping minute count.
+ * Charges land per full charge unit over the allowance (5 s for new groups, a minute for older ones;
+ * the program's `slash` takes whole units), so when over we show a countdown to the next charge.
  */
 export function UsageBar({
   usedSeconds,
   allowanceSeconds,
   tariffLamports,
+  chargeUnitSecs = 60,
   charging,
 }: {
   usedSeconds: number
   allowanceSeconds: number
+  /** Lamports per charge (per 5 s or per minute). */
   tariffLamports: number
+  chargeUnitSecs?: number
   /** Staked and the period is running: show "next charge in …" when over. */
   charging: boolean
 }) {
@@ -141,7 +144,7 @@ export function UsageBar({
   const pct = Math.min(100, (used / limit) * 100)
   const over = used > allowanceSeconds
   const overSeconds = used - allowanceSeconds
-  const nextChargeIn = 60 - (overSeconds % 60)
+  const nextChargeIn = chargeUnitSecs - (overSeconds % chargeUnitSecs)
   return (
     <div>
       <div className="flex justify-between gap-2 text-xs text-white/60">
@@ -172,7 +175,7 @@ export function UsageBar({
       {over && charging && (
         <p className="mt-1 text-xs text-red-200/80">
           Next −{fmtSol(tariffLamports)} in <span className="font-mono tabular-nums">0:{String(nextChargeIn).padStart(2, '0')}</span>
-          <span className="text-white/40"> · charged per full minute over</span>
+          <span className="text-white/40"> · charged {chargeEvery(chargeUnitSecs)} over</span>
         </p>
       )}
     </div>

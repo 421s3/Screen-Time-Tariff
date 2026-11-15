@@ -8,6 +8,10 @@ import {
   withdrawOnChain,
 } from '../chain/program'
 import { getChainSigner } from '../chain/signer'
+import { tariffPerCharge } from '../lib/format'
+
+/** New groups are charged for every 5 s over the allowance (contract v0.9). */
+const CHARGE_UNIT_SECS = 5
 
 // Endpoints and bodies follow docs/contract.md v0.5 section 4 and backend/src/routes.
 // CHAIN_MODE=off/mock: the backend does everything. CHAIN_MODE=devnet: Phantom signs
@@ -105,7 +109,8 @@ export const realApi: Api = {
         const r = await createGroupOnChain(chain.signer, chain.programId, {
           oracle: chain.cfg.oraclePubkey,
           allowanceMinutes: input.allowanceMinutes,
-          tariffLamportsPerMinute: input.tariffLamportsPerMinute,
+          // Charged every 5 s: the program's tariff is per unit, so store the per-5 s amount
+          tariffLamportsPerUnit: tariffPerCharge(input.tariffLamportsPerMinute, CHARGE_UNIT_SECS),
           periodEndMs: periodEnd,
         })
         onchain = { groupPda: r.groupPda, groupSeed: r.groupSeed, createSignature: r.signature }
@@ -124,6 +129,7 @@ export const realApi: Api = {
         demoMode: input.demoMode,
       },
       blocklist: input.blocklist,
+      chargeUnitSecs: CHARGE_UNIT_SECS,
       ...(onchain ?? {}),
     })
   },

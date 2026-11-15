@@ -329,6 +329,38 @@ try {
   for (const [name, real, fakeObj] of pairs) assert.deepEqual(keys(real), keys(fakeObj), `${name} keys differ from mock-state.json`);
   ok("/state values and shape match docs/mock-state.json");
 
+  // 5 s charge units (chargeUnitSecs: 5): the chain's tariff is per 5 s, slash counts 5 s units
+  {
+    const finn5 = newWallet();
+    r = await call("POST", "/groups", { wallet: finn5, body: { name: "Five Sec", displayName: "Finn", rules, chargeUnitSecs: 5 } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const fiveId = r.body.groupId as string;
+    await call("POST", `/groups/${fiveId}/stakes`, { wallet: finn5, body: { lamports: 100_000_000, signature: "s-finn5" } });
+    const finnToken = await pair(finn5, fiveId);
+    await report(finnToken, "TikTok", "title", 72); // 12 s over a 1 min allowance = 2 units
+    await runWorkerTick();
+    let fs5 = await state(fiveId);
+    assert.equal(fs5.group.rules.chargeUnitSecs, 5);
+    assert.equal(fs5.group.rules.tariffLamportsPerMinute, 9_999_996, "0.01 SOL/min rounds to 833,333 lamports per 5 s");
+    assert.equal(fs5.penalties.length, 1);
+    assert.equal(fs5.penalties[0].seconds, 10);
+    assert.equal(fs5.penalties[0].lamports, 1_666_666);
+    assert.equal(fs5.penalties[0].status, "confirmed");
+    await report(finnToken, "YouTube", "title", 4); // 16 s over = 3 units
+    await runWorkerTick();
+    await runWorkerTick();
+    fs5 = await state(fiveId);
+    assert.equal(fs5.penalties.length, 2, "one new 5 s entry, nothing resent");
+    assert.equal(fs5.penalties[0].app, "YouTube");
+    assert.equal(fs5.penalties[0].lamports, 833_333);
+    assert.equal(fs5.totals.penaltyPoolLamports, 2_499_999);
+    assert.equal(fs5.members[0].usage.minutesCharged, 0.25);
+    // Keep later checks (settlement, offline) about their own groups
+    await db.penalties().deleteMany({ groupId: new ObjectId(fiveId) });
+    await db.groups().deleteOne({ _id: new ObjectId(fiveId) });
+  }
+  ok("chargeUnitSecs 5: charged per 5 s over, tariff/12 each, no resends");
+
   // Group 2 (set up before moving the fake clock): exact tie, odd pool
   const [xavi, yuki, zane] = [newWallet(), newWallet(), newWallet()];
   r = await call("POST", "/groups", {

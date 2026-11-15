@@ -50,7 +50,8 @@ export async function createGroupOnChain(
   args: {
     oracle: string
     allowanceMinutes: number
-    tariffLamportsPerMinute: number
+    /** Stored on-chain as-is: lamports per charge unit (per 5 s for chargeUnitSecs = 5). */
+    tariffLamportsPerUnit: number
     periodEndMs: number
   },
 ): Promise<{ signature: string; groupPda: string; groupSeed: string }> {
@@ -63,7 +64,7 @@ export async function createGroupOnChain(
       new BN(groupSeed),
       new PublicKey(args.oracle),
       args.allowanceMinutes,
-      new BN(args.tariffLamportsPerMinute),
+      new BN(args.tariffLamportsPerUnit),
       new BN(Math.floor(args.periodEndMs / 1000)),
       new BN(GRACE_SECS),
     )

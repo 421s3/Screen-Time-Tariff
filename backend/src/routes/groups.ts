@@ -63,6 +63,9 @@ const createGroupInput = z.object({
   autoSettle: z.boolean().optional(),
   // Mock mode only (devnet reads it from the chain): settle window length in seconds
   graceSecs: z.number().int().positive().optional(),
+  // Seconds per charge unit: 5 = charged every 5 s over, and the on-chain tariff is per 5 s.
+  // Missing = 60 (per minute), which is what dashboards before v0.9 create.
+  chargeUnitSecs: z.union([z.literal(5), z.literal(60)]).default(60),
 });
 
 const joinInput = z.object({
@@ -94,6 +97,7 @@ async function onchainRules(
   groupPda: string | undefined,
   groupSeed: string | undefined,
   rules: Rules,
+  unitSecs: number,
 ): Promise<{ rules: Rules; graceSecs: number }> {
   if (!groupPda || !groupSeed) {
     throw new ApiError(400, "ONCHAIN_GROUP_REQUIRED", "Create the group on-chain first, then send groupPda and groupSeed");
@@ -114,7 +118,8 @@ async function onchainRules(
     rules: {
       ...rest,
       allowanceMinutes: onchain.allowanceMinutes,
-      tariffLamportsPerMinute: onchain.tariffLamportsPerMin,
+      // The chain's tariff is per charge unit; the API always talks lamports per minute
+      tariffLamportsPerMinute: Math.round((onchain.tariffLamportsPerMin * 60) / unitSecs),
       periodEnd,
       periodStart: Math.min(rules.periodStart, periodEnd - 1),
     },
@@ -144,14 +149,18 @@ groupsRouter.post("/groups", requireWallet, async (req, res) => {
   let groupSeed = body.groupSeed ?? null;
   let graceSecs: number | null = null;
   const autoSettle = body.autoSettle ?? true;
+  const unitSecs = body.chargeUnitSecs;
   if (chain instanceof FakeChain) {
     // Mock mode: do create_group on the creator's behalf
     groupSeed = groupSeed ?? String(now);
     graceSecs = body.graceSecs ?? config.graceSecs;
+    // Same rounding the dashboard does for the real program: the chain stores lamports per unit
+    const perUnit = Math.max(1, Math.round((rules.tariffLamportsPerMinute * unitSecs) / 60));
+    rules = { ...rules, tariffLamportsPerMinute: Math.round((perUnit * 60) / unitSecs) };
     try {
       groupPda = chain.createGroup(wallet, groupSeed, {
         allowanceMinutes: rules.allowanceMinutes,
-        tariffLamportsPerMin: rules.tariffLamportsPerMinute,
+        tariffLamportsPerMin: perUnit,
         periodEndSec: Math.floor(rules.periodEnd / 1000),
         graceSecs,
       });
@@ -160,7 +169,7 @@ groupsRouter.post("/groups", requireWallet, async (req, res) => {
       throw e;
     }
   } else if (chain) {
-    ({ rules, graceSecs } = await onchainRules(chain, wallet, body.groupPda, body.groupSeed, rules));
+    ({ rules, graceSecs } = await onchainRules(chain, wallet, body.groupPda, body.groupSeed, rules, unitSecs));
   }
   if (graceSecs !== null) warnIfShortGrace(body.name, graceSecs, autoSettle);
 
@@ -180,6 +189,7 @@ groupsRouter.post("/groups", requireWallet, async (req, res) => {
       createdAt: now,
       graceSecs,
       autoSettle,
+      chargeUnitSecs: unitSecs,
     };
     try {
       await groups().insertOne(group);

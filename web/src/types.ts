@@ -18,6 +18,8 @@ export type Blocklist = {
 export type Rules = {
   allowanceMinutes: number
   tariffLamportsPerMinute: number
+  /** Seconds per charge: 5 = charged every 5 s over, 60 = per full minute. Missing on old backends (= 60). */
+  chargeUnitSecs?: number
 }
 
 export type ChainMode = 'off' | 'mock' | 'devnet'
@@ -89,6 +91,8 @@ export type Penalty = {
   displayName: string
   app: string // "Tracker offline" for missed check-ins
   minutes: number
+  /** Over-allowance seconds this penalty charges for (contract v0.9; older backends only send minutes). */
+  seconds?: number
   lamports: number // estimate while pending; the amount actually charged once confirmed
   status: 'pending' | 'sent' | 'confirmed' | 'failed'
   signature: string | null

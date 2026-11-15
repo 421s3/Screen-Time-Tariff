@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import type { Penalty } from '../types'
-import { explorerTx, fmtSol } from '../lib/format'
+import { explorerTx, fmtDuration, fmtSol } from '../lib/format'
 import { Card, EmptyState } from './ui'
 
 const statusStyle: Record<Penalty['status'], string> = {
@@ -16,7 +16,7 @@ export function PenaltyFeed({ penalties }: { penalties: Penalty[] }) {
     return (
       <EmptyState
         title="No penalties yet"
-        body="When someone goes over the allowance, each extra minute is charged into the pool."
+        body="When someone goes over the allowance, the extra time is charged into the pool every few seconds."
       />
     )
   }
@@ -39,7 +39,7 @@ export function PenaltyFeed({ penalties }: { penalties: Penalty[] }) {
                     {p.displayName} paid {fmtSol(p.lamports)} into the pool
                     <span className="font-normal text-white/60">
                       {' '}
-                      for {p.minutes} min of {p.app}
+                      for {p.seconds !== undefined && p.seconds % 60 !== 0 ? fmtDuration(p.seconds) : `${p.minutes} min`} of {p.app}
                     </span>
                   </p>
                   <span

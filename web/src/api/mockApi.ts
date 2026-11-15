@@ -27,7 +27,7 @@ const PROGRAM_ID = 'GfR8egohvnFsdcLfPEJFccd1an274TVsfPhpWsUR3CGi'
 const GROUP_PDA = 'CMx7Jm8hHqbxyKDXMxbeWikjyVrJnUn1LrEnB2bPqxXm'
 const SOL = 1_000_000_000
 
-const DEFAULT_RULES: Rules = { allowanceMinutes: 1, tariffLamportsPerMinute: 10_000_000 }
+const DEFAULT_RULES: Rules = { allowanceMinutes: 1, tariffLamportsPerMinute: 10_000_000, chargeUnitSecs: 60 }
 
 // What a member is doing during a stretch of the period. `rate` = blocked seconds added per
 // real second (demo time is compressed). Idle and unblocked stretches add nothing.
@@ -200,6 +200,7 @@ function penaltiesAt(list: Racer[], elapsedSec: number, now: number): Penalty[] 
         displayName: r.displayName,
         app,
         minutes,
+        seconds: minutes * 60,
         lamports,
         status: confirmed ? 'confirmed' : 'sent',
         signature: null, // mock: no real transaction
