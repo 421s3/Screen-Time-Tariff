@@ -7,7 +7,7 @@ import { useGroupState } from '../api/hooks'
 import { ApiError } from '../api/base'
 import { forgetGroup } from '../lib/currentGroup'
 import type { GroupState, Member, Penalty } from '../types'
-import { fmtCountdown, fmtDuration, fmtSol, shortAddr } from '../lib/format'
+import { fmtClock, fmtCountdown, fmtDuration, fmtSol, shortAddr } from '../lib/format'
 import { Mascot } from '../components/Mascot'
 import { PenaltyFeed } from '../components/PenaltyFeed'
 import { ActivityBadge } from '../components/Activity'
@@ -99,7 +99,7 @@ export function Dashboard() {
           <h2 className="text-2xl font-bold">{group.name}</h2>
           <p className="text-sm text-white/60">
             Invite code <span className="font-mono font-semibold tracking-widest">{group.joinCode}</span> ·{' '}
-            {group.rules.allowanceMinutes} min allowance · {fmtSol(group.rules.tariffLamportsPerMinute)}/min over
+            {group.rules.allowanceMinutes} min allowance · {fmtSol(group.rules.tariffLamportsPerMinute)} per full minute over
             goes into the pool
             {group.blocklist.steamGames && ' · Steam games count'}
           </p>
@@ -148,6 +148,7 @@ export function Dashboard() {
                   rank={rankOf.get(m.wallet) ?? null}
                   leading={leadingSet.has(m.wallet)}
                   allowance={group.rules.allowanceMinutes}
+                  tariff={group.rules.tariffLamportsPerMinute}
                   isMe={m.wallet === wallet}
                   now={now}
                   active={group.status === 'active'}
@@ -173,7 +174,7 @@ export function Dashboard() {
                     {l.leading ? '👑 ' : ''}
                     {l.displayName}
                   </span>
-                  <span className="text-sm text-white/60">{l.blockedMinutes} min</span>
+                  <span className="font-mono text-sm tabular-nums text-white/60">{fmtClock(l.blockedSeconds ?? l.blockedMinutes * 60)}</span>
                 </li>
               ))}
             </ol>
@@ -260,6 +261,7 @@ function MemberCard({
   rank,
   leading,
   allowance,
+  tariff,
   isMe,
   now,
   active,
@@ -268,10 +270,16 @@ function MemberCard({
   rank: number | null
   leading: boolean
   allowance: number
+  tariff: number
   isMe: boolean
   now: number
   active: boolean
 }) {
+  // Tick per second between polls: while they're on a blocked app, count up from the last report,
+  // capped at 3 s so it never runs ahead of what the tracker will actually report.
+  const lastSeen = m.tracker.lastSeenAt
+  const ticking = active && m.tracker.online && !m.tracker.idle && m.current !== null && lastSeen !== null
+  const liveSeconds = m.usage.blockedSeconds + (ticking ? Math.min(3, Math.max(0, (now - lastSeen) / 1000)) : 0)
   return (
     <Card
       className={`h-full ${!m.staked ? 'opacity-60' : ''} ${
@@ -298,7 +306,7 @@ function MemberCard({
           </div>
         </div>
         <p className="text-right text-lg font-bold" title="Blocked screen time this period">
-          {fmtDuration(m.usage.blockedSeconds)}
+          <span className="font-mono tabular-nums">{fmtClock(liveSeconds)}</span>
         </p>
       </div>
 
@@ -311,7 +319,12 @@ function MemberCard({
       </p>
 
       <div className="mt-3">
-        <UsageBar usedMinutes={m.usage.blockedMinutes} allowanceMinutes={allowance} />
+        <UsageBar
+          usedSeconds={liveSeconds}
+          allowanceSeconds={allowance * 60}
+          tariffLamports={tariff}
+          charging={active && m.staked}
+        />
       </div>
 
       {m.staked ? (

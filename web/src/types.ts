@@ -77,6 +77,7 @@ export type Member = {
 export type LeaderboardEntry = {
   wallet: string
   displayName: string
+  blockedSeconds: number // exact (contract v0.8); blockedMinutes is floored
   blockedMinutes: number
   rank: number
   leading: boolean // would win if the period ended now (after settlement: the actual winners)

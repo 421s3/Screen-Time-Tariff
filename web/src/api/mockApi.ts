@@ -308,6 +308,7 @@ function buildState(): GroupState {
     .map((m, i) => ({
       wallet: m.wallet,
       displayName: m.displayName,
+      blockedSeconds: m.usage.blockedSeconds,
       blockedMinutes: m.usage.blockedMinutes,
       rank: i + 1,
       leading: settlement
