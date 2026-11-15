@@ -1,4 +1,4 @@
-# Interface Contract (draft v0.7: `tracker.idle` in /state, `blocklist.steamGames` documented. v0.6: missed check-ins and the settle window. v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
+# Interface Contract (draft v0.8: leaderboard rows include exact `blockedSeconds`. v0.7: `tracker.idle` in /state, `blocklist.steamGames` documented. v0.6: missed check-ins and the settle window. v0.5: winner-takes-pool, no Gemini / no roasts. Section 6 is the program as built in `program/`. Penalties go into the group's pool; the lowest-screen-time staked member wins it at settlement)
 
 This file is the single source of truth for how the four parts talk to each other. **Build against it, and tell the team before you change it.** Bump the version line when you do.
 
@@ -159,7 +159,7 @@ type GroupState = {
   members: Member[];
   // Staked members first, then lowest blocked time. `leading` = would win if the period ended now
   // (after settlement: the actual winners). Unstaked members never lead.
-  leaderboard: { wallet: string; displayName: string; blockedMinutes: number; rank: number; leading: boolean }[];
+  leaderboard: { wallet: string; displayName: string; blockedSeconds: number; blockedMinutes: number; rank: number; leading: boolean }[]; // blockedSeconds exact; blockedMinutes floored
   penalties: Penalty[];                 // newest first, max 50
   totals: { stakedLamports: number; penaltyPoolLamports: number }; // pool charged so far (after settle: the pool that was paid out)
 };

@@ -32,6 +32,15 @@ export function fmtDuration(totalSeconds: number): string {
   return `${sec}s`
 }
 
+/** Stopwatch style, ticks every second: "0:07", "1:23", "1:02:05". */
+export function fmtClock(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = String(s % 60).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`
+}
+
 export function ordinal(n: number): string {
   const v = n % 100
   const suffix = v >= 11 && v <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th')
@@ -50,10 +59,10 @@ export function fmtCountdown(ms: number): string {
     const m = Math.floor((ms % 3_600_000) / 60_000)
     return `${h}h ${String(m).padStart(2, '0')}m`
   }
-  return fmtClock(ms)
+  return clockFromMs(ms)
 }
 
-function fmtClock(ms: number): string {
+function clockFromMs(ms: number): string {
   if (ms <= 0) return '0:00'
   const total = Math.floor(ms / 1000)
   const m = Math.floor(total / 60)
