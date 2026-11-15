@@ -1,0 +1,2 @@
+# Desktop app log when running from source (next to the .exe when packaged)
+tracker.log*

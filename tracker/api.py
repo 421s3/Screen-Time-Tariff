@@ -6,7 +6,7 @@ import urllib.request
 from typing import Optional
 from urllib.parse import urlparse
 
-TIMEOUT_SEC = 10
+TIMEOUT_SEC = 5  # reports go out every second; don't let one slow request stall sampling long
 
 
 class ApiError(Exception):

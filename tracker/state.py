@@ -35,10 +35,49 @@ def read_env_file(path: Path) -> dict:
     return env
 
 
-def resolve_api_url(cli_value: Optional[str] = None, env_file: Path = HERE / ".env") -> str:
-    """--api-url beats the API_URL environment variable, which beats tracker/.env."""
+DEFAULT_DASHBOARD_URL = "http://localhost:5173"
+BUILD_DEFAULTS = RESOURCES / "build_defaults.json"  # written by build_exe.py --api-url/--dashboard-url
+
+
+def _build_default(key: str, defaults_file: Path) -> Optional[str]:
+    """URLs baked into the .exe at build time (not secrets), so a downloaded .exe works without a .env."""
+    try:
+        return json.loads(defaults_file.read_text(encoding="utf-8")).get(key) or None
+    except (OSError, ValueError):
+        return None
+
+
+def resolve_api_url(cli_value: Optional[str] = None, env_file: Path = HERE / ".env",
+                    defaults_file: Path = BUILD_DEFAULTS) -> str:
+    """--api-url beats the API_URL environment variable, then .env next to the tracker/.exe,
+    then the URL baked in at build time, then http://localhost:4000."""
     return (cli_value or os.environ.get("API_URL") or read_env_file(env_file).get("API_URL")
-            or DEFAULT_API_URL).rstrip("/")
+            or _build_default("apiUrl", defaults_file) or DEFAULT_API_URL).rstrip("/")
+
+
+def resolve_dashboard_url(cli_value: Optional[str] = None, env_file: Path = HERE / ".env",
+                          defaults_file: Path = BUILD_DEFAULTS) -> str:
+    """Same order as the backend URL, with DASHBOARD_URL."""
+    return (cli_value or os.environ.get("DASHBOARD_URL") or read_env_file(env_file).get("DASHBOARD_URL")
+            or _build_default("dashboardUrl", defaults_file) or DEFAULT_DASHBOARD_URL).rstrip("/")
+
+
+def write_env_values(path: Path, values: dict) -> None:
+    """Set KEY=VALUE lines in a .env file, keeping every other line (used by the GUI's settings)."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    todo = dict(values)
+    out = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+        if key in todo:
+            out.append(f"{key}={todo.pop(key)}")
+        else:
+            out.append(line)
+    out += [f"{k}={v}" for k, v in todo.items()]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text("\n".join(out) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def protect(token: str) -> dict:

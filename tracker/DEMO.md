@@ -7,13 +7,14 @@ one group with demo mode on (1-minute allowance, 0.01 SOL/min), staked, and pair
 
 On **Alice's** laptop:
 
-1. `ScreenTimeTariffTracker.exe` in `C:\ScreenTimeTariff\` with `.env` → `API_URL=<backend>`.
-2. Pair it with a fresh dashboard code. Confirm `Blocklist from backend: … Steam games on`.
+1. `ScreenTimeTariff.exe` (desktop app) in `C:\ScreenTimeTariff\`. Built with the Railway/Vercel URLs, or
+   set them in **Settings…**.
+2. Pair it with a fresh dashboard code. The window should say **Tracking · connected**.
 3. Install one light Steam game that starts in under 10 s (e.g. Aim Lab or a small free game).
    Launch it once ahead of time so shaders and updates are done.
 4. Run `ScreenTimeTariffTracker.exe --scan --games-only` with the game open: the game must show
    `TRACKED [<Game>/process]`, and `steam.exe` must show `ok`.
-5. Close the game. Start the tracker for real and leave its console visible on the side.
+5. Close the game. Leave the app window visible on the side (its **Now:** line shows the game).
 6. Check the dashboard shows Alice's tracker online.
 7. Turn off sleep and screen lock for the demo (Settings → Power), and silence notifications.
 
@@ -31,8 +32,8 @@ Backups: the `--fake` run below, and the recorded video.
 | 2:25–2:30 | Alice | Minimize the game | console `(no foreground window)`: a minimized game isn't charged |
 | 2:30–3:00 | presenter | Trust and next steps; click a penalty through to Explorer | Explorer |
 
-Reports go out every 30 s and the backend worker runs every 30–60 s, so a penalty lands about
-1–1.5 minutes after the limit is crossed. Start playing by 1:00.
+Reports go out every second and the dashboard refreshes every second, so usage bars move live; the
+penalty worker runs every `WORKER_INTERVAL_SEC` (5–30 s), so a penalty lands within that after the limit is crossed. Start playing by 1:00.
 
 ## If something breaks
 
@@ -49,7 +50,7 @@ Reports go out every 30 s and the backend worker runs every 30–60 s, so a pena
 - **"Can't I just close it?"** Missed check-ins count as over the limit (backend rule), and closing
   the window first saves unsent minutes to disk, which are sent on the next start.
 - **"Does it touch the game? Anti-cheat?"** No. It only asks Windows which window is in front
-  and the name of its program, every 2 s. No injection, no memory reads.
+  and the name of its program, every second. No injection, no memory reads.
 - **"What if I leave the game running and walk away?"** No keyboard, mouse or controller input for
   2 minutes stops game time. Minimized or locked doesn't count either.
 - **"What does it send?"** Game name, seconds, timestamps. Never window titles, keystrokes or history.

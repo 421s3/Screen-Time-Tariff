@@ -32,8 +32,8 @@ DEFAULT_CONFIG = {
     },
     "periodStart": 1794729000000,
     "periodEnd": 1794729900000,
-    "sampleIntervalSec": 2,
-    "reportIntervalSec": 30,
+    "sampleIntervalSec": 1,
+    "reportIntervalSec": 1,
     "idleThresholdSec": 120,
 }
 

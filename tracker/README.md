@@ -2,7 +2,7 @@
 
 Watches what's in front on a Windows PC, mainly **PC games** (Valorant, League of Legends,
 anything launched from Steam, any configured exe), and reports seconds of tracked use to the
-backend every 30 s. The report doubles as the tracker's check-in. Browser tab tracking
+backend every second (near real time). The report doubles as the tracker's check-in. Browser tab tracking
 (TikTok, YouTube, …) is optional.
 
 **Tracking only.** The tracker never closes, blocks or interrupts anything: listed apps, games and
@@ -13,42 +13,85 @@ and sent to the backend, which charges tariffs once the allowance is used up.
 - Spec: [`../docs/contract.md`](../docs/contract.md) section 4 (endpoints) and section 5 (blocklist)
 - Differences from the contract: [Contract status](#contract-status)
 
-## Setup
+## Desktop app (what users download)
 
-### Packaged `.exe` (demo laptops)
+**`ScreenTimeTariff.exe`**: one file, no Python or terminal needed.
 
-1. Put `ScreenTimeTariffTracker.exe` in a folder you can write to (e.g. `C:\ScreenTimeTariff\`).
-2. Next to it, create `.env` with one line: `API_URL=https://<backend host>`.
-3. Run it, enter the pairing code from the dashboard. The token and offline queue are stored
-   in that same folder.
-4. Optional: `ScreenTimeTariffTracker.exe --install-startup` starts it at every sign-in.
+1. Download `ScreenTimeTariff.exe` and put it in a folder you can write to (e.g.
+   `C:\ScreenTimeTariff\`). Its pairing, offline queue and `tracker.log` are saved next to it.
+2. Double-click it. Windows SmartScreen may warn about an unsigned app the first time:
+   **More info → Run anyway**.
+3. On the dashboard, open your group's **Pair tracker** page and copy the 6-digit code.
+4. Type it into the app and click **Pair tracker**. Tracking starts right away and the window shows
+   what's being tracked, this session's totals, and whether reports are reaching the backend.
 
-The `.exe` contains no URL, token or key. Everything machine-specific lives next to it.
+After that:
+
+- **Restarting** the app (or the PC) reconnects on its own with the saved, DPAPI-encrypted pairing.
+  Tick **Start at Windows sign-in** to have it start in the tray at every sign-in.
+- **Minimizing** keeps tracking. **Closing the window (X)** hides it to the system-tray icon and keeps
+  tracking; use the tray icon's **Quit** to stop (it sends the last report first).
+- **Offline:** reports are saved and sent automatically when the connection is back.
+- **Open dashboard** opens your group on the dashboard website.
+- **Disconnect** forgets the pairing on this PC (unsent usage stays queued); pair again with a new code.
+- **Settings…** changes the backend and dashboard URLs (saved to `.env` next to the app). A different
+  backend needs a new pairing code.
+- Only one tracker runs per folder: a second copy (or the command-line tracker) refuses to start.
+
+The app only measures what's in front. It never blocks, closes or slows down any app or site.
+
+### Backend and dashboard URLs (Railway / Vercel)
+
+The app finds them in this order, so they can change **without rebuilding**:
+
+1. `--api-url` / `--dashboard-url` on the command line
+2. `API_URL` / `DASHBOARD_URL` environment variables
+3. `.env` next to the exe (what **Settings…** writes), e.g.
+   ```
+   API_URL=https://<name>.up.railway.app
+   DASHBOARD_URL=https://<name>.vercel.app
+   ```
+4. The defaults baked in at build time (`build_exe.py --api-url … --dashboard-url …`)
+5. `http://localhost:4000` and `http://localhost:5173`
+
+Only these public URLs are ever bundled. The exe contains no API keys, MongoDB credentials,
+Solana keys or tokens; the tracker never needs any (it authenticates with its own pairing token,
+created on this PC at pairing time and stored encrypted next to the exe). A non-local `http://`
+backend shows a warning: use the `https://` Railway URL.
+
+### Build the exes
+
+```powershell
+cd tracker
+.venv\Scriptsctivate
+pip install -r requirements.txt -r requirements-build.txt
+python build_exe.py --api-url https://backend-production-340855b8.up.railway.app --dashboard-url https://screen-time-tariff.vercel.app
+```
+
+If an exe in `dist\` is running (and so locked), build elsewhere with `--out dist
+ext`.
+
+Those are the deployed backend (Railway, `chainMode: devnet`) and dashboard (Vercel). **Open dashboard**
+opens the paired group's page (`/group/<groupId>`; Vercel serves it thanks to `web/vercel.json`).
+
+`dist\ScreenTimeTariff.exe` (desktop app, ~18 MB) and `dist\ScreenTimeTariffTracker.exe` (command line,
+~8 MB). `--only gui|cli` builds one. The build bundles code, `blocklist.json` and the default URLs only,
+and fails if a local `.env`/token's contents end up inside an exe. `dist/` and `build/` are gitignored.
 
 ### From source
 
-Needs Windows and Python 3.10+. Runtime dependencies: `pywin32` and `psutil` only (HTTP is stdlib).
+Needs Windows and Python 3.10+. Runtime dependencies: `pywin32`, `psutil`, and for the tray icon
+`pystray` + `Pillow` (without them the app still works and minimizes instead).
 
 ```powershell
 cd tracker
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scriptsctivate
 pip install -r requirements.txt        # requirements-dev.txt adds pytest
-copy .env.example .env                 # then set API_URL to the backend
+python tracker_gui.py                  # desktop app (--minimized, --fake, --api-url, --dashboard-url, --data-dir)
 ```
 
-### Build the `.exe`
-
-```powershell
-pip install -r requirements-build.txt  # PyInstaller
-python build_exe.py                    # -> dist\ScreenTimeTariffTracker.exe (~8 MB, one file, console)
-```
-
-The build bundles code and `blocklist.json` only, never `.env`, the token file or `queue/`. It
-fails if a local `.env`/token's contents end up inside the exe. `dist/` and `build/` are gitignored.
-Windows SmartScreen may warn about an unsigned exe the first time: "More info", then "Run anyway".
-
-## Run
+## Command-line tracker
 
 ```powershell
 python tracker.py                      # first run asks for the pairing code, then tracks
@@ -71,7 +114,7 @@ down saves unsent seconds to the queue instead (no time for the network); they g
 
 ```
 Paired as Alice (H9Rje...) in group 6734f0c2a1b2c3d4e5f60718.
-Blocklist from backend: 3 processes, Steam games on, 5 browser titles. Sampling every 2s, reporting every 30s. Ctrl+C to stop.
+Blocklist from backend: 3 processes, Steam games on, 5 browser titles. Sampling every 1s, reporting every 1s. Ctrl+C to stop.
 14:06:29  TRACKED [Valorant/process]     VALORANT-Win64-Shipping.exe | 'VALORANT'
 14:07:02  TRACKED [Team Fortress 2/process]  tf_win64.exe | 'Team Fortress 2'
 14:07:40  ok                             Discord.exe | '#general - Discord'   (idle)
@@ -85,16 +128,14 @@ game), 30 s of something unblocked, repeating. The console prints
 `*** SYNTHETIC MODE ***` and tags every batch `(SYNTHETIC)`. The backend receives normal
 batches (the contract has no "synthetic" flag), so **say it out loud** if you use it in a demo.
 
-### Backend URL
+### Backend URL (command line)
 
-`--api-url` beats the `API_URL` environment variable, which beats `.env` (next to the exe, or in
-`tracker/`), which defaults to `http://localhost:4000`. The token is tied to the URL it was issued
-by: a different backend needs a new pairing code. The tracker warns if a non-local URL uses plain
-`http` (the token would travel unencrypted).
+Same order as the desktop app (see [Backend and dashboard URLs](#backend-and-dashboard-urls-railway--vercel)).
+The token is tied to the URL it was issued by: a different backend needs a new pairing code.
 
 ## What counts as playing
 
-Every `sampleIntervalSec` (2 s) the tracker reads the foreground window and its process.
+Every `sampleIntervalSec` (1 s, from the backend's `/tracker/config`) the tracker reads the foreground window and its process.
 
 | Situation | Counted? | How |
 |---|---|---|
@@ -142,7 +183,11 @@ last-resort fallback.
 
 ## Reporting
 
-Every `reportIntervalSec` (30 s), `POST /usage` with `Authorization: Bearer <token>`:
+Every `reportIntervalSec` (1 s, from the backend), `POST /usage` with `Authorization: Bearer <token>`.
+Requests go out one at a time from the tracking loop, so they never overlap. While the backend is
+unreachable, each second's usage is still written to the queue, but the network is only retried after
+1, 2, 4 … 30 s, so a long outage doesn't stall sampling every second. Request timeout: 5 s.
+An hour offline while playing queues ~3,600 small batches; they're sent oldest first on reconnect.
 
 ```json
 {
@@ -192,9 +237,11 @@ Every `reportIntervalSec` (30 s), `POST /usage` with `Authorization: Bearer <tok
 
 ```powershell
 pip install -r requirements-dev.txt
-python -m pytest                       # ~25 s; the offline tests wait for Windows to refuse connections
+python -m pytest                       # ~40 s; the offline tests wait for Windows to refuse connections
 ```
 
+- `test_gui.py`: the desktop app: pairing errors, pair → track → stop, restart without a code,
+  offline recovery, disconnect, revoked token, URL settings, and the Tk window itself.
 - `test_games.py`: process rules, Steam games vs the Steam client, minimized/Alt+Tab, controller idle.
 - `test_windows_lifecycle.py`: lock screen, idle, sleep/resume, single instance, sign-in entry,
   console close, packaged-exe paths.
@@ -217,6 +264,9 @@ It keeps tokens in memory: after restarting it, the tracker gets a 401 and asks 
 
 ## Known limits
 
+- Desktop app: if Windows shuts down or the app is killed (Task Manager), up to one report
+  interval (1 s) of not-yet-sent usage is lost; tray **Quit** sends it first. (The console tracker
+  saves it to the queue on console close / sign-out / shutdown.)
 - Games launched outside Steam and not in `processes` aren't counted (e.g. Epic, Battle.net):
   add their exe to `processes`.
 - A game that runs elevated hides its path, so `steamGames` can't see it; list its exe instead.

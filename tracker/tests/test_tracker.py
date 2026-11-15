@@ -13,7 +13,10 @@ def test_args_reject_bad_interval():
     with pytest.raises(SystemExit):
         tracker.parse_args(["--interval", "0"])
     with pytest.raises(SystemExit):
-        tracker.parse_args(["--interval", "40"])  # longer than the 30 s default report
+        tracker.parse_args(["--report-every", "-1"])
+    with pytest.raises(SystemExit):
+        tracker.parse_args(["--interval", "5", "--report-every", "2"])  # both given: report can't be faster
+    tracker.parse_args(["--interval", "40"])  # alone: the report interval follows it (see apply())
 
 
 def test_once_prints_match(monkeypatch, capsys):
